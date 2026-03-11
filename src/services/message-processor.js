@@ -53,10 +53,45 @@ function seemsLikeLocalWorkRequest(text) {
   return patterns.some((pattern) => pattern.test(normalized));
 }
 
-function buildDirectCodexPrompt({ workspaceRoot, repoRoot, userMessage }) {
+function extractTextParts(content) {
+  if (typeof content === 'string') {
+    return content;
+  }
+
+  if (!Array.isArray(content)) {
+    return '';
+  }
+
+  return content
+    .map((part) => {
+      if (part?.type === 'input_text' || part?.type === 'output_text') {
+        return part.text ?? '';
+      }
+
+      return '';
+    })
+    .filter(Boolean)
+    .join('\n');
+}
+
+function formatRecentSessionItems(items) {
+  return items
+    .map((item) => {
+      const role = item?.role ?? 'unknown';
+      const text = extractTextParts(item?.content).trim();
+      return text ? `${role}: ${text}` : null;
+    })
+    .filter(Boolean)
+    .join('\n');
+}
+
+function buildDirectCodexPrompt({ workspaceRoot, repoRoot, userMessage, sessionSummary, recentSessionItems }) {
   return [
     `Workspace root: ${workspaceRoot}.`,
     `Target repo: ${repoRoot}.`,
+    '',
+    sessionSummary ? `Conversation summary:\n${sessionSummary}` : 'Conversation summary:\n(none)',
+    recentSessionItems ? `Recent turns:\n${recentSessionItems}` : 'Recent turns:\n(none)',
     '',
     'The owner requested local code or repo work. Do not stop to ask for clarification unless the request is genuinely impossible or ambiguous in a way that blocks safe implementation.',
     'First inspect the existing codebase and infer the narrowest reasonable implementation from the request.',
@@ -80,6 +115,10 @@ function buildDirectCodexPrompt({ workspaceRoot, repoRoot, userMessage }) {
 }
 
 function formatCodexResultMessage(result) {
+  if (result.user_summary) {
+    return result.user_summary;
+  }
+
   const lines = [result.summary];
 
   if (result.task_id) {
@@ -151,19 +190,23 @@ export class MessageProcessor {
 
     try {
       const result = await this.codexRunner.run({ prompt, workingDirectory });
+      const structuredReport = result.structuredReport ?? null;
+      const completed = result.exitCode === 0 && result.acknowledgedOnly !== true;
       const summary =
-        result.exitCode === 0
-          ? 'Codex completed successfully.'
-          : `Codex failed with exit code ${result.exitCode}.`;
+        result.exitCode !== 0
+          ? `Codex failed with exit code ${result.exitCode}.`
+          : result.acknowledgedOnly
+            ? 'Codex did not complete the requested work.'
+            : structuredReport?.summary?.trim() || 'Codex completed successfully.';
 
-      if (result.exitCode === 0) {
+      if (completed) {
         this.db.completeTask(task.id, { resultSummary: summary, exitCode: result.exitCode });
       } else {
         this.db.failTask(task.id, { resultSummary: summary, exitCode: result.exitCode });
       }
 
       const output = {
-        ok: result.exitCode === 0,
+        ok: completed,
         task_id: task.id,
         task_title: taskTitle,
         summary,
@@ -171,6 +214,8 @@ export class MessageProcessor {
         command: result.command,
         exit_code: result.exitCode,
         timed_out: result.timedOut,
+        acknowledged_only: result.acknowledgedOnly ?? false,
+        structured_report: structuredReport,
         stdout: truncateText(result.stdout, this.config.codexMaxOutputChars),
         stderr: truncateText(result.stderr, this.config.codexMaxOutputChars),
       };
@@ -211,8 +256,9 @@ export class MessageProcessor {
     }
   }
 
-  async handleDirectCodexRequest({ job, message, text }) {
+  async handleDirectCodexRequest({ job, message, text, session }) {
     const repoRoot = this.config.projectRoot ?? process.cwd();
+    const snapshot = session ? await session.getSnapshot() : { summaryText: null, items: [] };
     const acknowledgement =
       typeof this.agent.composeAcknowledgement === 'function'
         ? await this.agent.composeAcknowledgement({
@@ -238,16 +284,30 @@ export class MessageProcessor {
         workspaceRoot: this.config.workspaceRoot,
         repoRoot,
         userMessage: text,
+        sessionSummary: snapshot.summaryText,
+        recentSessionItems: formatRecentSessionItems(snapshot.items.slice(-6)),
       }),
       workingDirectory: repoRoot,
       sourceJobId: job.id,
       sourceMessageId: message.id,
     });
+    const userSummary =
+      typeof this.agent.summarizeCodexResult === 'function'
+        ? await this.agent.summarizeCodexResult({
+            chatId: message.chat_id,
+            workspaceRoot: this.config.workspaceRoot,
+            userMessage: text,
+            codexResult: result,
+          })
+        : null;
 
     this.queueReply({
       chatId: message.chat_id,
       replyToMessageId: message.telegram_message_id,
-      text: formatCodexResultMessage(result),
+      text: formatCodexResultMessage({
+        ...result,
+        user_summary: userSummary,
+      }),
     });
   }
 
@@ -260,6 +320,10 @@ export class MessageProcessor {
 
     const text = `${message.message_text ?? ''}`.trim();
     const lower = text.toLowerCase();
+    const session = new SqliteSession({
+      db: this.db,
+      chatId: message.chat_id,
+    });
 
     if (lower === '/help') {
       this.queueReply({
@@ -307,15 +371,10 @@ export class MessageProcessor {
     }
 
     if (seemsLikeLocalWorkRequest(text)) {
-      await this.handleDirectCodexRequest({ job, message, text });
+      await this.handleDirectCodexRequest({ job, message, text, session });
       this.db.markMessageProcessed(message.id);
       return;
     }
-
-    const session = new SqliteSession({
-      db: this.db,
-      chatId: message.chat_id,
-    });
     const result = await this.agent.handleMessage({
       chatId: message.chat_id,
       messageText: text,

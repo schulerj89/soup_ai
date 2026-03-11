@@ -96,6 +96,37 @@ export class SupervisorAgent {
     return `${result.finalOutput ?? ''}`.trim() || 'Got it. I’ll start that now.';
   }
 
+  async summarizeCodexResult({ chatId, workspaceRoot, userMessage, codexResult }) {
+    const result = await this.runImpl(
+      this.agentFactory({
+        name: 'Tosh the AI Bot',
+        model: this.model,
+        instructions: [
+          this.systemPrompt,
+          '',
+          'Summarize a Codex run for Telegram.',
+          'Keep it concise and factual.',
+          'If the run is incomplete or blocked, say that clearly first.',
+          'If work completed, mention the key changes, verification, and any commit or push status if present.',
+          'Do not include raw CLI session boilerplate.',
+        ].join('\n'),
+      }),
+      [
+        `User request:\n${userMessage}`,
+        `Structured Codex result:\n${JSON.stringify(codexResult, null, 2)}`,
+      ].join('\n\n'),
+      {
+        context: {
+          chatId,
+          workspaceRoot,
+        },
+        maxTurns: 1,
+      },
+    );
+
+    return `${result.finalOutput ?? ''}`.trim() || `${codexResult.summary ?? 'Codex run finished.'}`;
+  }
+
   async handleMessage({
     chatId,
     messageText,

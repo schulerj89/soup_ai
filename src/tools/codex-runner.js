@@ -3,6 +3,44 @@ import os from 'node:os';
 import path from 'node:path';
 import readline from 'node:readline';
 import { spawn } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
+
+const CODEX_REPORT_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  required: [
+    'completed',
+    'summary',
+    'files_changed',
+    'verification',
+    'commit_hash',
+    'push_succeeded',
+    'follow_up',
+    'raw_user_visible_output',
+  ],
+  properties: {
+    completed: { type: 'boolean' },
+    summary: { type: 'string' },
+    files_changed: {
+      type: 'array',
+      items: { type: 'string' },
+    },
+    verification: {
+      type: 'array',
+      items: { type: 'string' },
+    },
+    commit_hash: {
+      anyOf: [{ type: 'string' }, { type: 'null' }],
+    },
+    push_succeeded: {
+      anyOf: [{ type: 'boolean' }, { type: 'null' }],
+    },
+    follow_up: {
+      anyOf: [{ type: 'string' }, { type: 'null' }],
+    },
+    raw_user_visible_output: { type: 'string' },
+  },
+};
 
 function parseTomlValue(rawValue) {
   const value = rawValue.trim();
@@ -98,6 +136,27 @@ function quoteForCmd(value) {
   return `"${`${value}`.replace(/"/g, '""')}"`;
 }
 
+function safeJsonParse(value) {
+  try {
+    return JSON.parse(value);
+  } catch {
+    return null;
+  }
+}
+
+function hasMeaningfulStructuredWork(report) {
+  if (!report || report.completed !== true) {
+    return false;
+  }
+
+  if ((report.files_changed?.length ?? 0) > 0 || (report.verification?.length ?? 0) > 0 || report.commit_hash) {
+    return true;
+  }
+
+  const rawOutput = `${report.raw_user_visible_output ?? ''}`.trim();
+  return !/^(noted\.|using workspace root|i(?:'|’)ll treat\b|i(?:'|’)m treating\b)/i.test(rawOutput);
+}
+
 export class CodexRunner {
   constructor({ codexBin, workspaceRoot, codexModel, codexEnableSearch, timeoutMs, codexHome }) {
     this.codexBin = codexBin;
@@ -119,7 +178,7 @@ export class CodexRunner {
     return resolved;
   }
 
-  buildArgs({ prompt, workingDirectory, modelOverride = this.codexModel }) {
+  buildArgs({ prompt, workingDirectory, modelOverride = this.codexModel, outputSchemaPath, outputLastMessagePath }) {
     const args = [];
 
     if (this.codexEnableSearch) {
@@ -127,6 +186,14 @@ export class CodexRunner {
     }
 
     args.push('exec', '--dangerously-bypass-approvals-and-sandbox', '-C', workingDirectory);
+
+    if (outputSchemaPath) {
+      args.push('--output-schema', outputSchemaPath);
+    }
+
+    if (outputLastMessagePath) {
+      args.push('-o', outputLastMessagePath);
+    }
 
     if (modelOverride) {
       args.push('-m', modelOverride);
@@ -278,6 +345,11 @@ export class CodexRunner {
 
   async run({ prompt, workingDirectory }) {
     const safeDirectory = this.assertAllowedDirectory(workingDirectory);
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'soup-ai-codex-'));
+    const outputSchemaPath = path.join(tempDir, `codex-schema-${randomUUID()}.json`);
+    const outputLastMessagePath = path.join(tempDir, `codex-output-${randomUUID()}.json`);
+    fs.writeFileSync(outputSchemaPath, JSON.stringify(CODEX_REPORT_SCHEMA, null, 2), 'utf8');
+
     const execute = (args) => {
       const spawnSpec = this.buildSpawnSpec(args);
 
@@ -337,29 +409,63 @@ export class CodexRunner {
       });
     };
 
-    const initialArgs = this.buildArgs({ prompt, workingDirectory: safeDirectory });
-    const initialResult = await execute(initialArgs);
+    try {
+      const initialArgs = this.buildArgs({
+        prompt,
+        workingDirectory: safeDirectory,
+        outputSchemaPath,
+        outputLastMessagePath,
+      });
+      const initialResult = await execute(initialArgs);
 
-    if (
-      initialResult.exitCode !== 0 &&
-      this.codexModel &&
-      /model is not supported/i.test(initialResult.stderr)
-    ) {
-      const fallbackArgs = this.buildArgs({ prompt, workingDirectory: safeDirectory, modelOverride: null });
-      const fallbackResult = await execute(fallbackArgs);
+      let finalResult = initialResult;
+
+      if (
+        initialResult.exitCode !== 0 &&
+        this.codexModel &&
+        /model is not supported/i.test(initialResult.stderr)
+      ) {
+        const fallbackArgs = this.buildArgs({
+          prompt,
+          workingDirectory: safeDirectory,
+          modelOverride: null,
+          outputSchemaPath,
+          outputLastMessagePath,
+        });
+        const fallbackResult = await execute(fallbackArgs);
+
+        finalResult = {
+          ...fallbackResult,
+          stderr: [
+            `Configured CODEX_MODEL=${this.codexModel} was rejected by Codex; retried without an explicit model.`,
+            initialResult.stderr.trim(),
+            fallbackResult.stderr.trim(),
+          ]
+            .filter(Boolean)
+            .join('\n\n'),
+        };
+      }
+
+      const structuredReport = fs.existsSync(outputLastMessagePath)
+        ? safeJsonParse(fs.readFileSync(outputLastMessagePath, 'utf8'))
+        : null;
+      const acknowledgedOnly = finalResult.exitCode === 0 && !hasMeaningfulStructuredWork(structuredReport);
 
       return {
-        ...fallbackResult,
-        stderr: [
-          `Configured CODEX_MODEL=${this.codexModel} was rejected by Codex; retried without an explicit model.`,
-          initialResult.stderr.trim(),
-          fallbackResult.stderr.trim(),
-        ]
-          .filter(Boolean)
-          .join('\n\n'),
+        ...finalResult,
+        structuredReport,
+        acknowledgedOnly,
       };
+    } finally {
+      if (fs.existsSync(outputSchemaPath)) {
+        fs.unlinkSync(outputSchemaPath);
+      }
+      if (fs.existsSync(outputLastMessagePath)) {
+        fs.unlinkSync(outputLastMessagePath);
+      }
+      if (fs.existsSync(tempDir)) {
+        fs.rmdirSync(tempDir);
+      }
     }
-
-    return initialResult;
   }
 }

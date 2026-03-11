@@ -38,7 +38,8 @@ test('MessageProcessor routes obvious code-change requests directly to Codex and
     const processor = new MessageProcessor({
       db,
       agent: {
-        composeAcknowledgement: async () => 'Got it. I’ll start that now.',
+        composeAcknowledgement: async () => "Got it. I'll start that now.",
+        summarizeCodexResult: async ({ codexResult }) => codexResult.summary,
         handleMessage: async () => {
           agentCalls += 1;
           return { text: 'unused' };
@@ -52,7 +53,18 @@ test('MessageProcessor routes obvious code-change requests directly to Codex and
             command: 'codex exec ...',
             exitCode: 0,
             timedOut: false,
-            stdout: 'changed files',
+            structuredReport: {
+              completed: true,
+              summary: 'Changed files and ran tests.',
+              files_changed: ['src/example.js'],
+              verification: ['npm test'],
+              commit_hash: 'abc1234',
+              push_succeeded: true,
+              follow_up: null,
+              raw_user_visible_output: 'Applied the requested changes.',
+            },
+            acknowledgedOnly: false,
+            stdout: '',
             stderr: '',
           };
         },
@@ -74,8 +86,9 @@ test('MessageProcessor routes obvious code-change requests directly to Codex and
     assert.equal(agentCalls, 0);
     assert.equal(acknowledgementFlushes, 1);
     assert.equal(outbound.length, 2);
-    assert.equal(outbound[0], 'Got it. I’ll start that now.');
-    assert.match(outbound[1], /Codex completed successfully\./);
+    assert.equal(outbound[0], "Got it. I'll start that now.");
+    assert.equal(outbound[1], 'Changed files and ran tests.');
+    assert.match(codexPrompt.prompt, /Conversation summary:/);
     assert.match(codexPrompt.prompt, /Do not stop to ask for clarification/);
     assert.equal(codexPrompt.workingDirectory, 'C:/Users/joshs/Projects/soup_ai');
   } finally {
@@ -109,6 +122,7 @@ test('MessageProcessor still uses the supervisor agent for non-local information
       db,
       agent: {
         composeAcknowledgement: async () => 'unused',
+        summarizeCodexResult: async () => 'unused',
         handleMessage: async () => {
           agentCalls += 1;
           return { text: 'Informational answer' };
@@ -141,6 +155,72 @@ test('MessageProcessor still uses the supervisor agent for non-local information
     assert.equal(agentCalls, 1);
     assert.equal(codexCalls, 0);
     assert.deepEqual(outbound, ['Informational answer']);
+  } finally {
+    db.close();
+  }
+});
+
+test('MessageProcessor marks acknowledgement-only Codex runs as incomplete', async () => {
+  const db = new AppDb({ dbPath: ':memory:' });
+
+  try {
+    const inbound = db.insertInboundMessage({
+      updateId: 3,
+      telegramMessageId: 13,
+      chatId: 'chat-3',
+      replyToMessageId: null,
+      text: 'Please update the repo.',
+      status: 'received',
+      raw: {},
+    });
+    const job = db.queueJob({
+      jobType: 'process_inbound_message',
+      messageId: inbound.id,
+      payload: {},
+    });
+
+    const processor = new MessageProcessor({
+      db,
+      agent: {
+        composeAcknowledgement: async () => "Got it. I'll start that now.",
+        summarizeCodexResult: async ({ codexResult }) => codexResult.summary,
+        handleMessage: async () => ({ text: 'unused' }),
+      },
+      codexRunner: {
+        run: async () => ({
+          workingDirectory: 'C:/Users/joshs/Projects/soup_ai',
+          command: 'codex exec ...',
+          exitCode: 0,
+          timedOut: false,
+          structuredReport: {
+            completed: true,
+            summary: 'Noted the request.',
+            files_changed: [],
+            verification: [],
+            commit_hash: null,
+            push_succeeded: null,
+            follow_up: 'Need more details.',
+            raw_user_visible_output: 'Noted. I will treat the repo as soup_ai.',
+          },
+          acknowledgedOnly: true,
+          stdout: 'Noted.',
+          stderr: '',
+        }),
+        getStatus: async () => ({ ok: true }),
+      },
+      config: buildConfig(),
+    });
+
+    await processor.processJob(job);
+
+    const latestTask = db.listRecentTasks(1)[0];
+    const outbound = db
+      .db.prepare("SELECT message_text FROM messages WHERE direction = 'outbound' ORDER BY id ASC")
+      .all()
+      .map((row) => row.message_text);
+
+    assert.equal(latestTask.status, 'failed');
+    assert.equal(outbound[1], 'Codex did not complete the requested work.');
   } finally {
     db.close();
   }
