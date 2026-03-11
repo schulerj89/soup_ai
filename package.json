@@ -1,0 +1,42 @@
+{
+  "name": "soup_ai",
+  "version": "1.0.0",
+  "description": "Local-only Telegram AI supervisor for Windows with Codex execution",
+  "private": true,
+  "directories": {
+    "doc": "docs",
+    "test": "test"
+  },
+  "scripts": {
+    "setup": "node src/cli/setup.js",
+    "discover:telegram": "node src/cli/discover-telegram.js",
+    "send:message": "node src/cli/send-message.js",
+    "supervisor:once": "node src/cli/supervisor-once.js",
+    "task:run": "cmd /c scripts\\run-supervisor.cmd",
+    "task:register": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/register-task.ps1",
+    "task:unregister": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/unregister-task.ps1",
+    "test": "node --test"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/schulerj89/soup_ai.git"
+  },
+  "keywords": [
+    "telegram",
+    "openai",
+    "codex",
+    "sqlite",
+    "windows"
+  ],
+  "author": "Josh Schuler",
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": ">=25.0.0"
+  },
+  "dependencies": {
+    "dotenv": "^17.3.1",
+    "openai": "^6.27.0",
+    "zod": "^4.3.6"
+  }
+}
