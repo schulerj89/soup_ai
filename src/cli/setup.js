@@ -82,6 +82,11 @@ async function main() {
       'OpenAI memory model',
       existingEnv.OPENAI_MEMORY_MODEL ?? existingEnv.OPENAI_MODEL ?? 'gpt-4.1-mini',
     );
+    const openAiTranscriptionModel = await promptValue(
+      rl,
+      'OpenAI transcription model',
+      existingEnv.OPENAI_TRANSCRIPTION_MODEL ?? 'gpt-4o-mini-transcribe',
+    );
     const dbPath = await promptValue(
       rl,
       'SQLite DB path',
@@ -98,11 +103,13 @@ async function main() {
       `OPENAI_API_KEY=${openAiApiKey}`,
       `OPENAI_MODEL=${openAiModel}`,
       `OPENAI_MEMORY_MODEL=${openAiMemoryModel}`,
+      `OPENAI_TRANSCRIPTION_MODEL=${openAiTranscriptionModel}`,
       `TELEGRAM_BOT_TOKEN=${telegramBotToken}`,
       `TELEGRAM_ALLOWED_CHAT_IDS=${allowedChatIds}`,
       `TELEGRAM_API_BASE_URL=${existingEnv.TELEGRAM_API_BASE_URL ?? 'https://api.telegram.org'}`,
       `TELEGRAM_POLL_LIMIT=${existingEnv.TELEGRAM_POLL_LIMIT ?? '25'}`,
       `TELEGRAM_POLL_TIMEOUT_SECONDS=${existingEnv.TELEGRAM_POLL_TIMEOUT_SECONDS ?? '0'}`,
+      `TELEGRAM_AUDIO_MAX_FILE_BYTES=${existingEnv.TELEGRAM_AUDIO_MAX_FILE_BYTES ?? '25165824'}`,
       `SUPERVISOR_DB_PATH=${normalizePathForEnv(dbPath)}`,
       `SUPERVISOR_WORKSPACE_ROOT=${normalizePathForEnv(workspaceRoot)}`,
       `SUPERVISOR_MAX_JOBS_PER_RUN=${existingEnv.SUPERVISOR_MAX_JOBS_PER_RUN ?? '5'}`,

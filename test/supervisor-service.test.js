@@ -22,6 +22,7 @@ test('SupervisorService ingests updates, processes jobs, and flushes outbound re
     projectRoot: 'C:/Users/joshs/Projects/soup_ai',
     codexBin: 'codex',
     codexMaxOutputChars: 2000,
+    telegramAudioMaxFileBytes: 24 * 1024 * 1024,
   };
 
   const telegramClient = {
@@ -120,6 +121,7 @@ test('SupervisorService skips when another active lease is present', async () =>
         workspaceRoot: 'C:/Users/joshs/Projects',
         codexBin: 'codex',
         codexMaxOutputChars: 2000,
+        telegramAudioMaxFileBytes: 24 * 1024 * 1024,
       },
       logger: { log() {}, error() {} },
     });
@@ -146,6 +148,7 @@ test('SupervisorService heartbeat renews the lease during long work', async () =
       workspaceRoot: 'C:/Users/joshs/Projects',
       codexBin: 'codex',
       codexMaxOutputChars: 2000,
+      telegramAudioMaxFileBytes: 24 * 1024 * 1024,
     };
 
     const service = new SupervisorService({
@@ -183,6 +186,105 @@ test('SupervisorService heartbeat renews the lease during long work', async () =
 
     assert.ok(elapsed >= 100);
     assert.equal(db.getLease('supervisor_once'), null);
+  } finally {
+    db.close();
+  }
+});
+
+test('SupervisorService transcribes Telegram voice messages before processing them', async () => {
+  const db = new AppDb({ dbPath: ':memory:' });
+  const sent = [];
+  const voiceUpdates = [
+    {
+      update_id: 202,
+      message: {
+        message_id: 88,
+        chat: {
+          id: 999111,
+          type: 'private',
+        },
+        date: 1736200100,
+        voice: {
+          file_id: 'voice-file-1',
+          file_size: 4096,
+          mime_type: 'audio/ogg',
+        },
+      },
+    },
+  ];
+
+  const service = new SupervisorService({
+    db,
+    telegramClient: {
+      getUpdates: async () => voiceUpdates,
+      getFile: async (fileId) => {
+        assert.equal(fileId, 'voice-file-1');
+        return { file_path: 'voice/file-1.ogg' };
+      },
+      downloadFile: async (filePath) => {
+        assert.equal(filePath, 'voice/file-1.ogg');
+        return Buffer.from('ogg-audio');
+      },
+      sendMessage: async ({ chatId, text }) => {
+        sent.push({ chatId, text });
+        return { message_id: 505, text };
+      },
+    },
+    audioTranscriber: {
+      transcribe: async ({ audioBuffer, fileName, mimeType }) => {
+        assert.equal(audioBuffer.toString(), 'ogg-audio');
+        assert.equal(fileName, 'voice-88.ogg');
+        assert.equal(mimeType, 'audio/ogg');
+        return {
+          text: 'Create a repo summary from this voice note.',
+          model: 'gpt-4o-mini-transcribe',
+        };
+      },
+    },
+    agent: {
+      answerDirectly: async ({ messageText }) => `Supervisor reply: ${messageText}`,
+    },
+    executionPlanner: {
+      plan: async ({ messageText }) => ({
+        action: 'answer_directly',
+        reason: 'Voice note was transcribed into text.',
+        responseOutline: `Reply directly to: ${messageText}`,
+        taskTitle: null,
+        executionPlan: null,
+        workingDirectory: null,
+      }),
+    },
+    codexRunner: {
+      run: async () => ({ exitCode: 0, stdout: '', stderr: '', timedOut: false }),
+    },
+    config: {
+      telegramAllowedChatIds: ['999111'],
+      telegramPollLimit: 25,
+      telegramPollTimeoutSeconds: 0,
+      maxJobsPerRun: 5,
+      codexTimeoutMs: 5000,
+      workspaceRoot: 'C:/Users/joshs/Projects',
+      projectRoot: 'C:/Users/joshs/Projects/soup_ai',
+      codexBin: 'codex',
+      codexMaxOutputChars: 2000,
+      telegramAudioMaxFileBytes: 24 * 1024 * 1024,
+    },
+    logger: { log() {}, error() {} },
+  });
+
+  try {
+    const summary = await service.runOnce();
+    const inbound = db.db.prepare("SELECT * FROM messages WHERE direction = 'inbound' ORDER BY id DESC LIMIT 1").get();
+    const metadata = JSON.parse(inbound.metadata_json);
+
+    assert.equal(summary.skipped, false);
+    assert.equal(summary.insertedMessages, 1);
+    assert.equal(summary.processedJobs, 1);
+    assert.equal(sent.length, 1);
+    assert.equal(sent[0].text, 'Supervisor reply: Create a repo summary from this voice note.');
+    assert.equal(inbound.message_text, 'Create a repo summary from this voice note.');
+    assert.equal(metadata.audio.transcription_model, 'gpt-4o-mini-transcribe');
+    assert.equal(metadata.audio.telegram_file_path, 'voice/file-1.ogg');
   } finally {
     db.close();
   }

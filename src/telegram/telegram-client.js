@@ -48,4 +48,22 @@ export class TelegramClient {
 
     return this.call('sendMessage', payload);
   }
+
+  async getFile(fileId) {
+    return this.call('getFile', {
+      file_id: fileId,
+    });
+  }
+
+  async downloadFile(filePath) {
+    const response = await this.fetchImpl(`${this.apiBaseUrl}/file/bot${this.token}/${filePath}`, {
+      method: 'GET',
+    });
+
+    if (!response.ok) {
+      throw new Error(`Telegram file download HTTP ${response.status}`);
+    }
+
+    return Buffer.from(await response.arrayBuffer());
+  }
 }

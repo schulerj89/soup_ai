@@ -201,7 +201,16 @@ export class AppDb {
     this.db.prepare('DELETE FROM leases WHERE key = ? AND owner = ?').run(key, owner);
   }
 
-  insertInboundMessage({ updateId, telegramMessageId, chatId, replyToMessageId, text, status, raw }) {
+  insertInboundMessage({
+    updateId,
+    telegramMessageId,
+    chatId,
+    replyToMessageId,
+    text,
+    status,
+    metadata = {},
+    raw,
+  }) {
     const now = this.now();
     const result = this.db
       .prepare(
@@ -213,9 +222,10 @@ export class AppDb {
            direction,
            message_text,
            status,
+           metadata_json,
            raw_json,
            created_at
-         ) VALUES (?, ?, ?, ?, 'inbound', ?, ?, ?, ?)`,
+         ) VALUES (?, ?, ?, ?, 'inbound', ?, ?, ?, ?, ?)`,
       )
       .run(
         updateId,
@@ -224,6 +234,7 @@ export class AppDb {
         `${chatId}`,
         text ?? null,
         status,
+        toJson(metadata),
         toJson(raw),
         now,
       );

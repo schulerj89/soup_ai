@@ -5,6 +5,7 @@
 ## What it does
 
 - Polls Telegram updates with a scheduled Windows task.
+- Transcribes Telegram voice notes and audio attachments through OpenAI speech-to-text before routing them to the supervisor.
 - Persists messages, queue state, leases, and tracked tasks in SQLite.
 - Uses the OpenAI Agents SDK as the supervisor brain.
 - Lets the model invoke a guarded local Codex tool inside one allowed workspace root.
@@ -74,6 +75,7 @@ npm test
 - `/tasks`: show recent Codex-tracked tasks
 
 Any other text is treated as a supervisor request. The model may answer directly or invoke Codex for local work.
+Telegram voice notes and audio files are transcribed first, then handled as normal inbound messages.
 
 The agent also has internal tools for:
 

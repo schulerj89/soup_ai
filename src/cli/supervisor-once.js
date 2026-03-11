@@ -3,6 +3,7 @@ import { AppDb } from '../db/app-db.js';
 import { ExecutionPlanner } from '../openai/execution-planner.js';
 import { SupervisorAgent } from '../openai/supervisor-agent.js';
 import { MemorySummarizer } from '../openai/memory-summarizer.js';
+import { AudioTranscriber } from '../openai/audio-transcriber.js';
 import { SupervisorService } from '../services/supervisor-service.js';
 import { TelegramClient } from '../telegram/telegram-client.js';
 import { CodexRunner } from '../tools/codex-runner.js';
@@ -32,6 +33,10 @@ async function main() {
     const memorySummarizer = new MemorySummarizer({
       model: config.openAiMemoryModel,
     });
+    const audioTranscriber = new AudioTranscriber({
+      apiKey: config.openAiApiKey,
+      model: config.openAiTranscriptionModel,
+    });
     const service = new SupervisorService({
       db,
       telegramClient,
@@ -40,6 +45,7 @@ async function main() {
       codexRunner,
       config,
       memorySummarizer,
+      audioTranscriber,
     });
 
     const summary = await service.runOnce();
