@@ -88,7 +88,9 @@ test('MessageProcessor routes obvious code-change requests directly to Codex and
     assert.equal(outbound.length, 2);
     assert.equal(outbound[0], "Got it. I'll start that now.");
     assert.equal(outbound[1], 'Changed files and ran tests.');
-    assert.match(codexPrompt.prompt, /Conversation summary:/);
+    assert.doesNotMatch(codexPrompt.prompt, /Conversation summary:/);
+    assert.doesNotMatch(codexPrompt.prompt, /Recent turns:/);
+    assert.match(codexPrompt.prompt, /Owner request:/);
     assert.match(codexPrompt.prompt, /Ask a clarifying question only when a real blocker/);
     assert.equal(codexPrompt.workingDirectory, 'C:/Users/joshs/Projects/soup_ai');
   } finally {
@@ -296,6 +298,102 @@ test('MessageProcessor marks acknowledgement-only Codex runs as incomplete', asy
 
     assert.equal(latestTask.status, 'failed');
     assert.equal(outbound[1], 'Codex did not complete the requested work.');
+  } finally {
+    db.close();
+  }
+});
+
+test('MessageProcessor retries direct Codex requests once after an acknowledgement-only run', async () => {
+  const db = new AppDb({ dbPath: ':memory:' });
+
+  try {
+    const inbound = db.insertInboundMessage({
+      updateId: 5,
+      telegramMessageId: 15,
+      chatId: 'chat-5',
+      replyToMessageId: null,
+      text: 'Please inspect the repo and fix the failing task flow.',
+      status: 'received',
+      raw: {},
+    });
+    const job = db.queueJob({
+      jobType: 'process_inbound_message',
+      messageId: inbound.id,
+      payload: {},
+    });
+
+    const prompts = [];
+
+    const processor = new MessageProcessor({
+      db,
+      agent: {
+        composeAcknowledgement: async () => "Got it. I'll start that now.",
+        summarizeCodexResult: async ({ codexResult }) => codexResult.summary,
+        handleMessage: async () => ({ text: 'unused' }),
+      },
+      codexRunner: {
+        run: async ({ prompt, workingDirectory }) => {
+          prompts.push(prompt);
+
+          if (prompts.length === 1) {
+            return {
+              workingDirectory,
+              command: 'codex exec ...',
+              exitCode: 0,
+              timedOut: false,
+              structuredReport: {
+                completed: true,
+                summary: 'Noted the request.',
+                files_changed: [],
+                verification: [],
+                commit_hash: null,
+                push_succeeded: null,
+                follow_up: null,
+                raw_user_visible_output: 'I will inspect the repo now.',
+              },
+              acknowledgedOnly: true,
+              stdout: 'Noted.',
+              stderr: '',
+            };
+          }
+
+          return {
+            workingDirectory,
+            command: 'codex exec ...',
+            exitCode: 0,
+            timedOut: false,
+            structuredReport: {
+              completed: true,
+              summary: 'Fixed the task flow and ran tests.',
+              files_changed: ['src/services/message-processor.js'],
+              verification: ['npm test'],
+              commit_hash: null,
+              push_succeeded: null,
+              follow_up: null,
+              raw_user_visible_output: 'Applied the fix and verified it.',
+            },
+            acknowledgedOnly: false,
+            stdout: '',
+            stderr: '',
+          };
+        },
+        getStatus: async () => ({ ok: true }),
+      },
+      config: buildConfig(),
+    });
+
+    await processor.processJob(job);
+
+    const latestTask = db.listRecentTasks(1)[0];
+    const outbound = db
+      .db.prepare("SELECT message_text FROM messages WHERE direction = 'outbound' ORDER BY id ASC")
+      .all()
+      .map((row) => row.message_text);
+
+    assert.equal(prompts.length, 2);
+    assert.match(prompts[1], /The previous attempt only acknowledged the request/);
+    assert.equal(latestTask.status, 'completed');
+    assert.equal(outbound[1], 'Fixed the task flow and ran tests.');
   } finally {
     db.close();
   }

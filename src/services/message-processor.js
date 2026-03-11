@@ -69,39 +69,7 @@ function seemsLikeLocalWorkRequest(text) {
   );
 }
 
-function extractTextParts(content) {
-  if (typeof content === 'string') {
-    return content;
-  }
-
-  if (!Array.isArray(content)) {
-    return '';
-  }
-
-  return content
-    .map((part) => {
-      if (part?.type === 'input_text' || part?.type === 'output_text') {
-        return part.text ?? '';
-      }
-
-      return '';
-    })
-    .filter(Boolean)
-    .join('\n');
-}
-
-function formatRecentSessionItems(items) {
-  return items
-    .map((item) => {
-      const role = item?.role ?? 'unknown';
-      const text = extractTextParts(item?.content).trim();
-      return text ? `${role}: ${text}` : null;
-    })
-    .filter(Boolean)
-    .join('\n');
-}
-
-function buildDirectCodexPrompt({ workspaceRoot, repoRoot, userMessage, sessionSummary, recentSessionItems }) {
+function buildDirectCodexPrompt({ workspaceRoot, repoRoot, userMessage }) {
   return [
     'Handle the owner request directly in the target repo.',
     'If the request is actionable, inspect the relevant files and proceed without a setup acknowledgement.',
@@ -112,9 +80,6 @@ function buildDirectCodexPrompt({ workspaceRoot, repoRoot, userMessage, sessionS
     '',
     `Target repo: ${repoRoot}.`,
     `Workspace root: ${workspaceRoot}.`,
-    sessionSummary ? `Conversation summary:\n${sessionSummary}` : 'Conversation summary:\n(none)',
-    recentSessionItems ? `Recent turns:\n${recentSessionItems}` : 'Recent turns:\n(none)',
-    '',
     'Interpret the owner request reasonably and perform the work directly in the target repo.',
     'If the request is read-only, inspect the relevant files and answer from actual file contents.',
     'If the request requires changes, inspect first, then implement, then verify.',
@@ -132,6 +97,17 @@ function buildDirectCodexPrompt({ workspaceRoot, repoRoot, userMessage, sessionS
     '- Only use follow_up when the request is genuinely blocked and impossible to complete safely.',
     '- If you can answer from repository inspection, do that instead of asking for more direction.',
     '- Keep the final report factual and concise.',
+  ].join('\n');
+}
+
+function buildDirectCodexRetryPrompt(originalPrompt) {
+  return [
+    originalPrompt,
+    '',
+    'The previous attempt only acknowledged the request instead of doing the work.',
+    'Do not acknowledge, restate, or defer.',
+    'Inspect the relevant files now, complete the requested work if possible, and verify it.',
+    'If something is genuinely blocked, state the exact blocker after inspection.',
   ].join('\n');
 }
 
@@ -191,7 +167,14 @@ export class MessageProcessor {
     }
   }
 
-  async runCodexTool({ taskTitle, prompt, workingDirectory, sourceJobId, sourceMessageId }) {
+  async runCodexTool({
+    taskTitle,
+    prompt,
+    workingDirectory,
+    sourceJobId,
+    sourceMessageId,
+    retryOnAcknowledgementOnly = false,
+  }) {
     const previewCommand = [
       this.config.codexBin,
       'exec',
@@ -210,7 +193,15 @@ export class MessageProcessor {
     });
 
     try {
-      const result = await this.codexRunner.run({ prompt, workingDirectory });
+      let result = await this.codexRunner.run({ prompt, workingDirectory });
+
+      if (retryOnAcknowledgementOnly && result.exitCode === 0 && result.acknowledgedOnly) {
+        result = await this.codexRunner.run({
+          prompt: buildDirectCodexRetryPrompt(prompt),
+          workingDirectory,
+        });
+      }
+
       const structuredReport = result.structuredReport ?? null;
       const completed = result.exitCode === 0 && result.acknowledgedOnly !== true;
       const summary =
@@ -277,9 +268,8 @@ export class MessageProcessor {
     }
   }
 
-  async handleDirectCodexRequest({ job, message, text, session }) {
+  async handleDirectCodexRequest({ job, message, text }) {
     const repoRoot = this.config.projectRoot ?? process.cwd();
-    const snapshot = session ? await session.getSnapshot() : { summaryText: null, items: [] };
     const acknowledgement =
       typeof this.agent.composeAcknowledgement === 'function'
         ? await this.agent.composeAcknowledgement({
@@ -305,12 +295,11 @@ export class MessageProcessor {
         workspaceRoot: this.config.workspaceRoot,
         repoRoot,
         userMessage: text,
-        sessionSummary: snapshot.summaryText,
-        recentSessionItems: formatRecentSessionItems(snapshot.items.slice(-6)),
       }),
       workingDirectory: repoRoot,
       sourceJobId: job.id,
       sourceMessageId: message.id,
+      retryOnAcknowledgementOnly: true,
     });
     const userSummary =
       typeof this.agent.summarizeCodexResult === 'function'
@@ -392,7 +381,7 @@ export class MessageProcessor {
     }
 
     if (seemsLikeLocalWorkRequest(text)) {
-      await this.handleDirectCodexRequest({ job, message, text, session });
+      await this.handleDirectCodexRequest({ job, message, text });
       this.db.markMessageProcessed(message.id);
       return;
     }
