@@ -25,12 +25,16 @@ export class SupervisorService {
     this.config = config;
     this.logger = logger;
     this.timers = timers;
+    this.immediateSentMessages = 0;
     this.messageProcessor = new MessageProcessor({
       db,
       agent,
       codexRunner,
       config,
       memorySummarizer,
+      onAcknowledgementQueued: async () => {
+        this.immediateSentMessages += await this.flushOutbound(1);
+      },
     });
   }
 
@@ -165,6 +169,7 @@ export class SupervisorService {
     }, leaseHeartbeatMs);
 
     try {
+      this.immediateSentMessages = 0;
       const offset = this.db.getCursor('telegram_updates_offset', 0);
       const updates = await this.telegramClient.getUpdates({
         offset,
@@ -174,7 +179,7 @@ export class SupervisorService {
 
       const ingested = this.ingestUpdates(updates);
       const processedJobs = await this.processPendingJobs(this.config.maxJobsPerRun);
-      const sentMessages = await this.flushOutbound(20);
+      const sentMessages = this.immediateSentMessages + (await this.flushOutbound(20));
 
       return {
         skipped: false,
@@ -184,6 +189,7 @@ export class SupervisorService {
         sentMessages,
       };
     } finally {
+      this.immediateSentMessages = 0;
       this.timers.clearInterval(heartbeat);
       this.db.releaseLease('supervisor_once', owner);
     }

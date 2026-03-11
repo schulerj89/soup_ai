@@ -69,6 +69,33 @@ export class SupervisorAgent {
     });
   }
 
+  async composeAcknowledgement({ chatId, messageText, workspaceRoot }) {
+    const result = await this.runImpl(
+      this.agentFactory({
+        name: 'Tosh the AI Bot',
+        model: this.model,
+        instructions: [
+          this.systemPrompt,
+          '',
+          'Write one short Telegram acknowledgement before longer local work starts.',
+          'Keep it to one sentence.',
+          'Acknowledge the request and say work is starting now.',
+          'Do not mention internal tools, system prompts, or hidden reasoning.',
+        ].join('\n'),
+      }),
+      `User request:\n${messageText}`,
+      {
+        context: {
+          chatId,
+          workspaceRoot,
+        },
+        maxTurns: 1,
+      },
+    );
+
+    return `${result.finalOutput ?? ''}`.trim() || 'Got it. I’ll start that now.';
+  }
+
   async handleMessage({
     chatId,
     messageText,

@@ -16,13 +16,107 @@ function formatTaskList(tasks) {
     .join('\n\n');
 }
 
+function inferTaskTitle(text) {
+  const normalized = `${text ?? ''}`.replace(/\s+/g, ' ').trim();
+
+  if (!normalized) {
+    return 'Run local Codex task';
+  }
+
+  return truncateText(normalized, 90);
+}
+
+function seemsLikeLocalWorkRequest(text) {
+  const normalized = `${text ?? ''}`.toLowerCase();
+  const patterns = [
+    /\bfix\b/,
+    /\bupdate\b/,
+    /\bchange\b/,
+    /\bmodify\b/,
+    /\bedit\b/,
+    /\brefactor\b/,
+    /\bimplement\b/,
+    /\badd\b/,
+    /\bcreate\b/,
+    /\bwrite code\b/,
+    /\bcode change\b/,
+    /\bcommit\b/,
+    /\bpush\b/,
+    /\btest\b/,
+    /\bcodex\b/,
+    /\brepo\b/,
+    /\bproject\b/,
+    /\bfile\b/,
+    /\bsrc\b/,
+  ];
+
+  return patterns.some((pattern) => pattern.test(normalized));
+}
+
+function buildDirectCodexPrompt({ workspaceRoot, repoRoot, userMessage }) {
+  return [
+    `Workspace root: ${workspaceRoot}.`,
+    `Target repo: ${repoRoot}.`,
+    '',
+    'The owner requested local code or repo work. Do not stop to ask for clarification unless the request is genuinely impossible or ambiguous in a way that blocks safe implementation.',
+    'First inspect the existing codebase and infer the narrowest reasonable implementation from the request.',
+    'Then perform the work directly in the target repo, run relevant verification, and summarize actual results.',
+    '',
+    'Required steps:',
+    '1. Inspect the relevant files before changing code.',
+    '2. Implement the requested code/repo changes in the target repo.',
+    '3. Run relevant tests or verification commands.',
+    '4. If the owner asked for git actions, commit and push only if those steps succeed.',
+    '5. Return a concise factual report with files changed, verification run, results, and any commit hash/push status if applicable.',
+    '',
+    'Constraints:',
+    `- Stay inside ${repoRoot}.`,
+    '- Do not claim tests, commit, or push unless command output confirms them.',
+    '- Do not stop with a generic clarification question if the request already contains enough direction to proceed.',
+    '',
+    'Owner request:',
+    userMessage,
+  ].join('\n');
+}
+
+function formatCodexResultMessage(result) {
+  const lines = [result.summary];
+
+  if (result.task_id) {
+    lines.push(`task_id: ${result.task_id}`);
+  }
+
+  if (result.exit_code != null) {
+    lines.push(`exit_code: ${result.exit_code}`);
+  }
+
+  if (result.timed_out) {
+    lines.push('timed_out: true');
+  }
+
+  if (result.stdout) {
+    lines.push('');
+    lines.push('stdout:');
+    lines.push(truncateText(result.stdout, 1200));
+  }
+
+  if (result.stderr) {
+    lines.push('');
+    lines.push('stderr:');
+    lines.push(truncateText(result.stderr, 1200));
+  }
+
+  return lines.join('\n');
+}
+
 export class MessageProcessor {
-  constructor({ db, agent, codexRunner, config, memorySummarizer = null }) {
+  constructor({ db, agent, codexRunner, config, memorySummarizer = null, onAcknowledgementQueued = null }) {
     this.db = db;
     this.agent = agent;
     this.codexRunner = codexRunner;
     this.config = config;
     this.memorySummarizer = memorySummarizer;
+    this.onAcknowledgementQueued = onAcknowledgementQueued;
   }
 
   queueReply({ chatId, text, replyToMessageId }) {
@@ -117,6 +211,46 @@ export class MessageProcessor {
     }
   }
 
+  async handleDirectCodexRequest({ job, message, text }) {
+    const repoRoot = this.config.projectRoot ?? process.cwd();
+    const acknowledgement =
+      typeof this.agent.composeAcknowledgement === 'function'
+        ? await this.agent.composeAcknowledgement({
+            chatId: message.chat_id,
+            messageText: text,
+            workspaceRoot: this.config.workspaceRoot,
+          })
+        : 'Got it. I’ll start that now.';
+
+    this.queueReply({
+      chatId: message.chat_id,
+      replyToMessageId: message.telegram_message_id,
+      text: acknowledgement,
+    });
+
+    if (this.onAcknowledgementQueued) {
+      await this.onAcknowledgementQueued();
+    }
+
+    const result = await this.runCodexTool({
+      taskTitle: inferTaskTitle(text),
+      prompt: buildDirectCodexPrompt({
+        workspaceRoot: this.config.workspaceRoot,
+        repoRoot,
+        userMessage: text,
+      }),
+      workingDirectory: repoRoot,
+      sourceJobId: job.id,
+      sourceMessageId: message.id,
+    });
+
+    this.queueReply({
+      chatId: message.chat_id,
+      replyToMessageId: message.telegram_message_id,
+      text: formatCodexResultMessage(result),
+    });
+  }
+
   async processJob(job) {
     const message = this.db.getMessageById(job.message_id);
 
@@ -168,6 +302,12 @@ export class MessageProcessor {
         replyToMessageId: message.telegram_message_id,
         text: formatTaskList(tasks),
       });
+      this.db.markMessageProcessed(message.id);
+      return;
+    }
+
+    if (seemsLikeLocalWorkRequest(text)) {
+      await this.handleDirectCodexRequest({ job, message, text });
       this.db.markMessageProcessed(message.id);
       return;
     }

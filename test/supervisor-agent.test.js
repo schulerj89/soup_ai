@@ -38,3 +38,20 @@ test('SupervisorAgent builds a Tosh agent and returns final output text', async 
     ['run_codex_exec', 'get_codex_status', 'list_recent_tasks', 'get_supervisor_snapshot'],
   );
 });
+
+test('SupervisorAgent can compose a short acknowledgement', async () => {
+  const agent = new SupervisorAgent({
+    model: 'gpt-4.1-mini',
+    runImpl: async () => ({
+      finalOutput: 'Got it. I’m starting that now.',
+    }),
+  });
+
+  const result = await agent.composeAcknowledgement({
+    chatId: '123',
+    messageText: 'Please update the repo.',
+    workspaceRoot: 'C:/Users/joshs/Projects',
+  });
+
+  assert.equal(result, 'Got it. I’m starting that now.');
+});

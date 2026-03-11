@@ -19,6 +19,7 @@ test('SupervisorService ingests updates, processes jobs, and flushes outbound re
     maxJobsPerRun: 5,
     codexTimeoutMs: 5000,
     workspaceRoot: 'C:/Users/joshs/Projects',
+    projectRoot: 'C:/Users/joshs/Projects/soup_ai',
     codexBin: 'codex',
     codexMaxOutputChars: 2000,
   };
@@ -32,6 +33,7 @@ test('SupervisorService ingests updates, processes jobs, and flushes outbound re
   };
 
   const agent = {
+    composeAcknowledgement: async () => 'I’ll take care of that now.',
     handleMessage: async ({ messageText }) => ({
       text: `Supervisor reply: ${messageText}`,
       toolResults: [],
@@ -62,9 +64,10 @@ test('SupervisorService ingests updates, processes jobs, and flushes outbound re
     assert.equal(summary.skipped, false);
     assert.equal(summary.updatesReceived, 1);
     assert.equal(summary.processedJobs, 1);
-    assert.equal(summary.sentMessages, 1);
-    assert.equal(sent.length, 1);
-    assert.match(sent[0].text, /Supervisor reply/);
+    assert.equal(summary.sentMessages, 2);
+    assert.equal(sent.length, 2);
+    assert.equal(sent[0].text, 'I’ll take care of that now.');
+    assert.match(sent[1].text, /Codex completed successfully\./);
   } finally {
     db.close();
   }
