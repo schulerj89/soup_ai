@@ -8,6 +8,7 @@
 - Transcribes Telegram voice notes and audio attachments through OpenAI speech-to-text before routing them to the supervisor.
 - Persists messages, queue state, leases, and tracked tasks in SQLite.
 - Uses the OpenAI Agents SDK as the supervisor brain.
+- Gives the supervisor built-in OpenAI web search for current external questions.
 - Lets the model invoke a guarded local Codex tool inside one allowed workspace root.
 - Exposes Codex status and recent limits telemetry from the local Codex install.
 - Queues outbound Telegram replies so sends can be retried on the next scheduled run.
@@ -79,6 +80,7 @@ Telegram voice notes and audio files are transcribed first, then handled as norm
 
 The agent also has internal tools for:
 
+- web search for current information
 - recent task history
 - supervisor queue snapshot
 - Codex status and recent rate-limit telemetry
