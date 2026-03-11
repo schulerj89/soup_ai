@@ -106,3 +106,75 @@ test('CodexRunner resolves codex.cmd on Windows-style PATHs', () => {
     process.env.Path = originalPath;
   }
 });
+
+test('CodexRunner wraps codex.cmd with cmd.exe on Windows', () => {
+  const runner = new CodexRunner({
+    codexBin: 'C:\\Users\\joshs\\AppData\\Roaming\\npm\\codex.cmd',
+    workspaceRoot: 'C:/Users/joshs/Projects',
+    codexModel: null,
+    codexEnableSearch: false,
+    timeoutMs: 1000,
+    codexHome: os.tmpdir(),
+  });
+
+  const originalPlatform = process.platform;
+  const originalComSpec = process.env.comspec;
+
+  Object.defineProperty(process, 'platform', { value: 'win32' });
+  process.env.comspec = 'C:\\Windows\\System32\\cmd.exe';
+
+  try {
+    const spec = runner.buildSpawnSpec(['exec', 'test']);
+    assert.equal(spec.command, '"C:\\Users\\joshs\\AppData\\Roaming\\npm\\codex.cmd" exec test');
+    assert.deepEqual(spec.args, []);
+    assert.equal(spec.shell, true);
+  } finally {
+    Object.defineProperty(process, 'platform', { value: originalPlatform });
+    process.env.comspec = originalComSpec;
+  }
+});
+
+test('CodexRunner keeps direct spawn for executables on Windows', () => {
+  const runner = new CodexRunner({
+    codexBin: 'C:\\tools\\codex.exe',
+    workspaceRoot: 'C:/Users/joshs/Projects',
+    codexModel: null,
+    codexEnableSearch: false,
+    timeoutMs: 1000,
+    codexHome: os.tmpdir(),
+  });
+
+  const originalPlatform = process.platform;
+  Object.defineProperty(process, 'platform', { value: 'win32' });
+
+  try {
+    const spec = runner.buildSpawnSpec(['exec', 'test']);
+    assert.equal(spec.command, 'C:\\tools\\codex.exe');
+    assert.deepEqual(spec.args, ['exec', 'test']);
+    assert.equal(spec.shell, false);
+  } finally {
+    Object.defineProperty(process, 'platform', { value: originalPlatform });
+  }
+});
+
+test('CodexRunner places top-level search before exec and model after exec', () => {
+  const runner = new CodexRunner({
+    codexBin: 'codex',
+    workspaceRoot: 'C:/Users/joshs/Projects',
+    codexModel: 'gpt-5.4',
+    codexEnableSearch: true,
+    timeoutMs: 1000,
+    codexHome: os.tmpdir(),
+  });
+
+  assert.deepEqual(runner.buildArgs({ prompt: 'test prompt', workingDirectory: 'C:/Users/joshs/Projects/soup_ai' }), [
+    '--search',
+    'exec',
+    '--dangerously-bypass-approvals-and-sandbox',
+    '-C',
+    'C:/Users/joshs/Projects/soup_ai',
+    '-m',
+    'gpt-5.4',
+    'test prompt',
+  ]);
+});

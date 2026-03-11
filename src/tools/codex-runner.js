@@ -90,6 +90,14 @@ function pathEnvValue() {
   return key ? process.env[key] : '';
 }
 
+function quoteForCmd(value) {
+  if (/^[A-Za-z0-9_./:=+-]+$/.test(value)) {
+    return value;
+  }
+
+  return `"${`${value}`.replace(/"/g, '""')}"`;
+}
+
 export class CodexRunner {
   constructor({ codexBin, workspaceRoot, codexModel, codexEnableSearch, timeoutMs, codexHome }) {
     this.codexBin = codexBin;
@@ -111,20 +119,17 @@ export class CodexRunner {
     return resolved;
   }
 
-  buildArgs({ prompt, workingDirectory }) {
-    const args = [
-      'exec',
-      '--dangerously-bypass-approvals-and-sandbox',
-      '-C',
-      workingDirectory,
-    ];
-
-    if (this.codexModel) {
-      args.push('-m', this.codexModel);
-    }
+  buildArgs({ prompt, workingDirectory, modelOverride = this.codexModel }) {
+    const args = [];
 
     if (this.codexEnableSearch) {
       args.push('--search');
+    }
+
+    args.push('exec', '--dangerously-bypass-approvals-and-sandbox', '-C', workingDirectory);
+
+    if (modelOverride) {
+      args.push('-m', modelOverride);
     }
 
     args.push(prompt);
@@ -162,6 +167,21 @@ export class CodexRunner {
     }
 
     return this.codexBin;
+  }
+
+  buildSpawnSpec(args) {
+    const command = this.resolveSpawnCommand();
+    const extension = path.extname(command).toLowerCase();
+
+    if (process.platform === 'win32' && (extension === '.cmd' || extension === '.bat')) {
+      return {
+        command: [quoteForCmd(command), ...args.map(quoteForCmd)].join(' '),
+        args: [],
+        shell: true,
+      };
+    }
+
+    return { command, args, shell: false };
   }
 
   readConfigSummary() {
@@ -258,62 +278,88 @@ export class CodexRunner {
 
   async run({ prompt, workingDirectory }) {
     const safeDirectory = this.assertAllowedDirectory(workingDirectory);
-    const args = this.buildArgs({ prompt, workingDirectory: safeDirectory });
-    const command = this.resolveSpawnCommand();
+    const execute = (args) => {
+      const spawnSpec = this.buildSpawnSpec(args);
 
-    return new Promise((resolve, reject) => {
-      const child = spawn(command, args, {
-        cwd: safeDirectory,
-        shell: false,
-        windowsHide: true,
-      });
+      return new Promise((resolve, reject) => {
+        const child = spawn(spawnSpec.command, spawnSpec.args, {
+          cwd: safeDirectory,
+          shell: spawnSpec.shell,
+          windowsHide: true,
+        });
 
-      let stdout = '';
-      let stderr = '';
-      let settled = false;
-      let timedOut = false;
+        let stdout = '';
+        let stderr = '';
+        let settled = false;
+        let timedOut = false;
 
-      const timeout = setTimeout(() => {
-        timedOut = true;
-        child.kill();
-      }, this.timeoutMs);
+        const timeout = setTimeout(() => {
+          timedOut = true;
+          child.kill();
+        }, this.timeoutMs);
 
-      child.stdout.on('data', (chunk) => {
-        stdout += chunk.toString();
-      });
+        child.stdout.on('data', (chunk) => {
+          stdout += chunk.toString();
+        });
 
-      child.stderr.on('data', (chunk) => {
-        stderr += chunk.toString();
-      });
+        child.stderr.on('data', (chunk) => {
+          stderr += chunk.toString();
+        });
 
-      child.on('error', (error) => {
-        if (settled) {
-          return;
-        }
+        child.on('error', (error) => {
+          if (settled) {
+            return;
+          }
 
-        settled = true;
-        clearTimeout(timeout);
-        reject(error);
-      });
+          settled = true;
+          clearTimeout(timeout);
+          reject(error);
+        });
 
-      child.on('close', (exitCode, signal) => {
-        if (settled) {
-          return;
-        }
+        child.on('close', (exitCode, signal) => {
+          if (settled) {
+            return;
+          }
 
-        settled = true;
-        clearTimeout(timeout);
+          settled = true;
+          clearTimeout(timeout);
 
-        resolve({
-          command: [command, ...args].join(' '),
-          workingDirectory: safeDirectory,
-          stdout,
-          stderr,
-          exitCode: exitCode ?? (timedOut ? -1 : null),
-          signal,
-          timedOut,
+          resolve({
+            command: [spawnSpec.command, ...spawnSpec.args].join(' '),
+            workingDirectory: safeDirectory,
+            stdout,
+            stderr,
+            exitCode: exitCode ?? (timedOut ? -1 : null),
+            signal,
+            timedOut,
+          });
         });
       });
-    });
+    };
+
+    const initialArgs = this.buildArgs({ prompt, workingDirectory: safeDirectory });
+    const initialResult = await execute(initialArgs);
+
+    if (
+      initialResult.exitCode !== 0 &&
+      this.codexModel &&
+      /model is not supported/i.test(initialResult.stderr)
+    ) {
+      const fallbackArgs = this.buildArgs({ prompt, workingDirectory: safeDirectory, modelOverride: null });
+      const fallbackResult = await execute(fallbackArgs);
+
+      return {
+        ...fallbackResult,
+        stderr: [
+          `Configured CODEX_MODEL=${this.codexModel} was rejected by Codex; retried without an explicit model.`,
+          initialResult.stderr.trim(),
+          fallbackResult.stderr.trim(),
+        ]
+          .filter(Boolean)
+          .join('\n\n'),
+      };
+    }
+
+    return initialResult;
   }
 }
