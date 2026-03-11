@@ -85,6 +85,11 @@ function walkFiles(dirPath, matcher, files = []) {
   return files;
 }
 
+function pathEnvValue() {
+  const key = Object.keys(process.env).find((name) => name.toLowerCase() === 'path');
+  return key ? process.env[key] : '';
+}
+
 export class CodexRunner {
   constructor({ codexBin, workspaceRoot, codexModel, codexEnableSearch, timeoutMs, codexHome }) {
     this.codexBin = codexBin;
@@ -124,6 +129,39 @@ export class CodexRunner {
 
     args.push(prompt);
     return args;
+  }
+
+  resolveSpawnCommand() {
+    if (path.isAbsolute(this.codexBin) || this.codexBin.includes(path.sep)) {
+      return this.codexBin;
+    }
+
+    if (process.platform !== 'win32') {
+      return this.codexBin;
+    }
+
+    const candidateNames = path.extname(this.codexBin)
+      ? [this.codexBin]
+      : [`${this.codexBin}.cmd`, `${this.codexBin}.exe`, `${this.codexBin}.bat`, this.codexBin];
+
+    const candidateDirectories = [
+      ...`${pathEnvValue() ?? ''}`.split(path.delimiter).filter(Boolean),
+      path.dirname(process.execPath),
+      process.env.ProgramFiles ? path.join(process.env.ProgramFiles, 'nodejs') : null,
+      process.env.APPDATA ? path.join(process.env.APPDATA, 'npm') : null,
+    ].filter(Boolean);
+
+    for (const directory of candidateDirectories) {
+      for (const candidateName of candidateNames) {
+        const candidatePath = path.join(directory, candidateName);
+
+        if (fs.existsSync(candidatePath)) {
+          return candidatePath;
+        }
+      }
+    }
+
+    return this.codexBin;
   }
 
   readConfigSummary() {
@@ -221,9 +259,10 @@ export class CodexRunner {
   async run({ prompt, workingDirectory }) {
     const safeDirectory = this.assertAllowedDirectory(workingDirectory);
     const args = this.buildArgs({ prompt, workingDirectory: safeDirectory });
+    const command = this.resolveSpawnCommand();
 
     return new Promise((resolve, reject) => {
-      const child = spawn(this.codexBin, args, {
+      const child = spawn(command, args, {
         cwd: safeDirectory,
         shell: false,
         windowsHide: true,
@@ -266,7 +305,7 @@ export class CodexRunner {
         clearTimeout(timeout);
 
         resolve({
-          command: [this.codexBin, ...args].join(' '),
+          command: [command, ...args].join(' '),
           workingDirectory: safeDirectory,
           stdout,
           stderr,

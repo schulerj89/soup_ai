@@ -80,3 +80,29 @@ test('CodexRunner reads config and recent rate-limit telemetry', async () => {
   assert.equal(status.rateLimits.primary.usedPercent, 12);
   assert.equal(status.rateLimits.lastTokenUsage.total_tokens, 1234);
 });
+
+test('CodexRunner resolves codex.cmd on Windows-style PATHs', () => {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'soup-ai-codex-path-'));
+  const binDir = path.join(tempRoot, 'bin');
+  fs.mkdirSync(binDir, { recursive: true });
+  fs.writeFileSync(path.join(binDir, 'codex.cmd'), '@echo off\r\n', 'utf8');
+
+  const originalPath = process.env.Path;
+  process.env.Path = binDir;
+
+  try {
+    const runner = new CodexRunner({
+      codexBin: 'codex',
+      workspaceRoot: 'C:/Users/joshs/Projects',
+      codexModel: null,
+      codexEnableSearch: false,
+      timeoutMs: 1000,
+      codexHome: tempRoot,
+    });
+
+    const resolved = runner.resolveSpawnCommand();
+    assert.match(resolved.toLowerCase(), /codex\.cmd$/);
+  } finally {
+    process.env.Path = originalPath;
+  }
+});
