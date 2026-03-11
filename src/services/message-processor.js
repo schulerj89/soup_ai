@@ -28,7 +28,7 @@ function inferTaskTitle(text) {
 
 function seemsLikeLocalWorkRequest(text) {
   const normalized = `${text ?? ''}`.toLowerCase();
-  const patterns = [
+  const strongPatterns = [
     /\bfix\b/,
     /\bupdate\b/,
     /\bchange\b/,
@@ -50,7 +50,23 @@ function seemsLikeLocalWorkRequest(text) {
     /\bsrc\b/,
   ];
 
-  return patterns.some((pattern) => pattern.test(normalized));
+  if (strongPatterns.some((pattern) => pattern.test(normalized))) {
+    return true;
+  }
+
+  const inspectionPattern =
+    /\b(review|inspect|check|look at|look through|analyze|analyse|summarize|explain|walk through|read)\b/;
+  const localReferencePattern =
+    /\b(repo|repository|project|codebase|workspace|folder|directory|readme|docs|package\.json|src|test)\b/;
+  const filePathPattern =
+    /(^|[\s(])([a-z]:)?[./\\]?[\w-]+([/\\][\w.-]+)+(\.[a-z0-9]+)?(?=$|[\s),.:;!?])/i;
+  const fileNamePattern = /\b[\w.-]+\.(js|mjs|cjs|ts|tsx|json|md|ps1|cmd|yml|yaml|toml)\b/;
+
+  return (
+    (inspectionPattern.test(normalized) && localReferencePattern.test(normalized)) ||
+    filePathPattern.test(normalized) ||
+    fileNamePattern.test(normalized)
+  );
 }
 
 function extractTextParts(content) {

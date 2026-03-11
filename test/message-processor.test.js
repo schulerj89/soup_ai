@@ -160,6 +160,81 @@ test('MessageProcessor still uses the supervisor agent for non-local information
   }
 });
 
+test('MessageProcessor routes repo inspection requests directly to Codex', async () => {
+  const db = new AppDb({ dbPath: ':memory:' });
+
+  try {
+    const inbound = db.insertInboundMessage({
+      updateId: 4,
+      telegramMessageId: 14,
+      chatId: 'chat-4',
+      replyToMessageId: null,
+      text: 'Review src/services/message-processor.js and explain how direct Codex requests work.',
+      status: 'received',
+      raw: {},
+    });
+    const job = db.queueJob({
+      jobType: 'process_inbound_message',
+      messageId: inbound.id,
+      payload: {},
+    });
+
+    let agentCalls = 0;
+    let codexCalls = 0;
+
+    const processor = new MessageProcessor({
+      db,
+      agent: {
+        composeAcknowledgement: async () => "Got it. I'll inspect that now.",
+        summarizeCodexResult: async ({ codexResult }) => codexResult.summary,
+        handleMessage: async () => {
+          agentCalls += 1;
+          return { text: 'unused' };
+        },
+      },
+      codexRunner: {
+        run: async ({ workingDirectory }) => {
+          codexCalls += 1;
+          return {
+            workingDirectory,
+            command: 'codex exec ...',
+            exitCode: 0,
+            timedOut: false,
+            structuredReport: {
+              completed: true,
+              summary: 'Inspected the file and summarized the direct Codex flow.',
+              files_changed: [],
+              verification: [],
+              commit_hash: null,
+              push_succeeded: null,
+              follow_up: null,
+              raw_user_visible_output: 'Reviewed the file and explained the flow.',
+            },
+            acknowledgedOnly: false,
+            stdout: '',
+            stderr: '',
+          };
+        },
+        getStatus: async () => ({ ok: true }),
+      },
+      config: buildConfig(),
+    });
+
+    await processor.processJob(job);
+
+    const outbound = db
+      .db.prepare("SELECT message_text FROM messages WHERE direction = 'outbound' ORDER BY id ASC")
+      .all()
+      .map((row) => row.message_text);
+
+    assert.equal(agentCalls, 0);
+    assert.equal(codexCalls, 1);
+    assert.deepEqual(outbound, ["Got it. I'll inspect that now.", 'Inspected the file and summarized the direct Codex flow.']);
+  } finally {
+    db.close();
+  }
+});
+
 test('MessageProcessor marks acknowledgement-only Codex runs as incomplete', async () => {
   const db = new AppDb({ dbPath: ':memory:' });
 
