@@ -49,9 +49,15 @@ test('MessageProcessor lets the supervisor agent choose Codex tool usage', async
           reason: 'User explicitly requested repo work.',
           responseOutline: null,
           taskTitle: 'Apply repo update',
-          codexPrompt: 'Do the requested work for: Please update the repo, run tests, commit, and push the changes.',
+          executionPlan: {
+            goal: 'Update the repo, run tests, commit, and push the changes.',
+            steps: ['Make the requested repo changes.', 'Run the relevant tests.', 'Commit and push the result.'],
+            targetPaths: ['src/example.js'],
+            exactFileContents: [],
+            constraints: ['Do not ask for a setup acknowledgement.'],
+            verification: ['npm test'],
+          },
           workingDirectory: 'C:/Users/joshs/Projects/soup_ai',
-          expectedVerification: ['npm test'],
         }),
       },
       codexRunner: {
@@ -89,10 +95,11 @@ test('MessageProcessor lets the supervisor agent choose Codex tool usage', async
       .all()
       .map((row) => row.message_text);
 
-    assert.deepEqual(codexInput, {
-      prompt: 'Do the requested work for: Please update the repo, run tests, commit, and push the changes.',
-      workingDirectory: 'C:/Users/joshs/Projects/soup_ai',
-    });
+    assert.equal(codexInput.workingDirectory, 'C:/Users/joshs/Projects/soup_ai');
+    assert.match(codexInput.prompt, /Task: Apply repo update/);
+    assert.match(codexInput.prompt, /Goal:\nUpdate the repo, run tests, commit, and push the changes\./);
+    assert.match(codexInput.prompt, /Target paths:\n- src\/example\.js/);
+    assert.match(codexInput.prompt, /Verification:\n- npm test/);
     assert.deepEqual(outbound, ["Got it. I'll start that now.", 'Changed files and ran tests.']);
   } finally {
     db.close();
@@ -135,9 +142,8 @@ test('MessageProcessor still uses the supervisor agent for informational request
           reason: 'This is an informational question.',
           responseOutline: 'Answer the question directly without using Codex.',
           taskTitle: null,
-          codexPrompt: null,
+          executionPlan: null,
           workingDirectory: null,
-          expectedVerification: [],
         }),
       },
       codexRunner: {
@@ -206,9 +212,15 @@ test('MessageProcessor reports acknowledgement-only Codex runs as incomplete whe
           reason: 'User asked for repo work.',
           responseOutline: null,
           taskTitle: 'Update repo',
-          codexPrompt: 'Please update the repo.',
+          executionPlan: {
+            goal: 'Please update the repo.',
+            steps: ['Update the repo as requested.'],
+            targetPaths: [],
+            exactFileContents: [],
+            constraints: [],
+            verification: [],
+          },
           workingDirectory: 'C:/Users/joshs/Projects/soup_ai',
-          expectedVerification: [],
         }),
       },
       codexRunner: {
@@ -246,6 +258,88 @@ test('MessageProcessor reports acknowledgement-only Codex runs as incomplete whe
 
     assert.equal(latestTask.status, 'failed');
     assert.equal(outbound[1], 'Codex did not complete the requested work.');
+  } finally {
+    db.close();
+  }
+});
+
+test('MessageProcessor renders exact file contents explicitly for Codex', async () => {
+  const db = new AppDb({ dbPath: ':memory:' });
+
+  try {
+    const inbound = db.insertInboundMessage({
+      updateId: 4,
+      telegramMessageId: 14,
+      chatId: 'chat-4',
+      replyToMessageId: null,
+      text: 'Create a README with exact content.',
+      status: 'received',
+      raw: {},
+    });
+    const job = db.queueJob({
+      jobType: 'process_inbound_message',
+      messageId: inbound.id,
+      payload: {},
+    });
+
+    let renderedPrompt = null;
+
+    const processor = new MessageProcessor({
+      db,
+      agent: {
+        composeAcknowledgement: async () => "Got it. I'll start that now.",
+        summarizeCodexResult: async ({ codexResult }) => codexResult.summary,
+      },
+      executionPlanner: {
+        plan: async () => ({
+          action: 'run_codex',
+          reason: 'User requested local file creation.',
+          responseOutline: null,
+          taskTitle: 'Create README',
+          executionPlan: {
+            goal: 'Create the requested README file.',
+            steps: ['Create the folder if needed.', 'Write the README file.'],
+            targetPaths: ['telegram_codex_e2e/readme.md'],
+            exactFileContents: [{ path: 'telegram_codex_e2e/readme.md', content: 'telegram smoke test' }],
+            constraints: ['Do not add any extra text.'],
+            verification: ['Read the file and confirm it matches exactly.'],
+          },
+          workingDirectory: 'C:/Users/joshs/Projects/soup_ai',
+        }),
+      },
+      codexRunner: {
+        run: async ({ prompt, workingDirectory }) => {
+          renderedPrompt = { prompt, workingDirectory };
+          return {
+            workingDirectory,
+            command: 'codex exec ...',
+            exitCode: 0,
+            timedOut: false,
+            structuredReport: {
+              completed: true,
+              summary: 'Created the README.',
+              files_changed: ['telegram_codex_e2e/readme.md'],
+              verification: ['Read the file and confirm it matches exactly.'],
+              commit_hash: null,
+              push_succeeded: null,
+              follow_up: null,
+              raw_user_visible_output: 'Created the README.',
+            },
+            acknowledgedOnly: false,
+            stdout: '',
+            stderr: '',
+          };
+        },
+      },
+      config: buildConfig(),
+    });
+
+    await processor.processJob(job);
+
+    assert.equal(renderedPrompt.workingDirectory, 'C:/Users/joshs/Projects/soup_ai');
+    assert.match(renderedPrompt.prompt, /Path: telegram_codex_e2e\/readme\.md/);
+    assert.match(renderedPrompt.prompt, /Content:\ntelegram smoke test/);
+    assert.match(renderedPrompt.prompt, /Constraints:\n- Do not add any extra text\./);
   } finally {
     db.close();
   }

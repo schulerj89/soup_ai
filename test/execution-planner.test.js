@@ -12,8 +12,14 @@ test('ExecutionPlanner normalizes a run_codex plan', async () => {
         response_outline: null,
         task_title: 'Create repo file',
         working_directory: 'C:/Users/joshs/Projects/soup_ai',
-        codex_prompt: 'Create the requested file.',
-        expected_verification: ['Read the file back.'],
+        execution: {
+          goal: 'Create the requested file.',
+          steps: ['Add the requested file to the repo.'],
+          target_paths: ['notes/todo.txt'],
+          exact_file_contents: [{ path: 'notes/todo.txt', content: 'hello' }],
+          constraints: ['Do not modify unrelated files.'],
+          verification: ['Read the file back.'],
+        },
       }),
     }),
   });
@@ -33,9 +39,15 @@ test('ExecutionPlanner normalizes a run_codex plan', async () => {
     reason: 'The user explicitly asked for repo work.',
     responseOutline: null,
     taskTitle: 'Create repo file',
-    codexPrompt: 'Create the requested file.',
+    executionPlan: {
+      goal: 'Create the requested file.',
+      steps: ['Add the requested file to the repo.'],
+      targetPaths: ['notes/todo.txt'],
+      exactFileContents: [{ path: 'notes/todo.txt', content: 'hello' }],
+      constraints: ['Do not modify unrelated files.'],
+      verification: ['Read the file back.'],
+    },
     workingDirectory: 'C:/Users/joshs/Projects/soup_ai',
-    expectedVerification: ['Read the file back.'],
   });
 });
 
@@ -47,7 +59,9 @@ test('ExecutionPlanner falls back to answer_directly for invalid Codex plans', a
         action: 'run_codex',
         reason: 'Needs repo work.',
         task_title: '',
-        codex_prompt: '',
+        execution: {
+          goal: '',
+        },
       }),
     }),
   });
@@ -64,5 +78,5 @@ test('ExecutionPlanner falls back to answer_directly for invalid Codex plans', a
 
   assert.equal(plan.action, 'answer_directly');
   assert.match(plan.reason, /incomplete Codex execution plan/i);
-  assert.equal(plan.codexPrompt, null);
+  assert.equal(plan.executionPlan, null);
 });

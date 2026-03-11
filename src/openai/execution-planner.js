@@ -37,19 +37,51 @@ function formatRecentItems(items) {
     .join('\n');
 }
 
+function normalizeStringList(value) {
+  return Array.isArray(value) ? value.map((item) => `${item}`.trim()).filter(Boolean) : [];
+}
+
+function normalizeExactFileContents(value) {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .map((item) => {
+      if (!item || typeof item !== 'object') {
+        return null;
+      }
+
+      const path = `${item.path ?? ''}`.trim();
+      const content = typeof item.content === 'string' ? item.content : null;
+
+      if (!path || content == null) {
+        return null;
+      }
+
+      return { path, content };
+    })
+    .filter(Boolean);
+}
+
 function normalizePlan(rawPlan, projectRoot) {
   const plan = rawPlan && typeof rawPlan === 'object' ? rawPlan : {};
   const action = plan.action === 'run_codex' ? 'run_codex' : 'answer_directly';
   const reason = `${plan.reason ?? ''}`.trim() || 'No reason provided.';
   const responseOutline = `${plan.response_outline ?? ''}`.trim() || null;
   const taskTitle = `${plan.task_title ?? ''}`.trim() || null;
-  const codexPrompt = `${plan.codex_prompt ?? ''}`.trim() || null;
   const workingDirectory = `${plan.working_directory ?? ''}`.trim() || projectRoot;
-  const expectedVerification = Array.isArray(plan.expected_verification)
-    ? plan.expected_verification.map((item) => `${item}`.trim()).filter(Boolean)
-    : [];
+  const execution = plan.execution && typeof plan.execution === 'object' ? plan.execution : {};
+  const executionPlan = {
+    goal: `${execution.goal ?? ''}`.trim() || null,
+    steps: normalizeStringList(execution.steps),
+    targetPaths: normalizeStringList(execution.target_paths),
+    exactFileContents: normalizeExactFileContents(execution.exact_file_contents),
+    constraints: normalizeStringList(execution.constraints),
+    verification: normalizeStringList(execution.verification),
+  };
 
-  if (action === 'run_codex' && (!taskTitle || !codexPrompt)) {
+  if (action === 'run_codex' && (!taskTitle || !executionPlan.goal)) {
     return {
       action: 'answer_directly',
       reason: 'Planner returned an incomplete Codex execution plan.',
@@ -57,9 +89,8 @@ function normalizePlan(rawPlan, projectRoot) {
         responseOutline ??
         'Answer directly and ask the user to restate the exact local change if they want repo work performed.',
       taskTitle: null,
-      codexPrompt: null,
+      executionPlan: null,
       workingDirectory: projectRoot,
-      expectedVerification: [],
     };
   }
 
@@ -68,9 +99,8 @@ function normalizePlan(rawPlan, projectRoot) {
     reason,
     responseOutline,
     taskTitle,
-    codexPrompt,
+    executionPlan: action === 'run_codex' ? executionPlan : null,
     workingDirectory,
-    expectedVerification,
   };
 }
 
@@ -98,9 +128,9 @@ export class ExecutionPlanner {
         'Valid actions are "answer_directly" and "run_codex".',
         'Use "answer_directly" for feasibility questions, product questions, brainstorming, clarification, or advice.',
         'Use "run_codex" only when the user clearly wants local repo or machine work performed.',
-        'If you choose "run_codex", produce a minimal task-scoped Codex prompt that asks only for the requested work.',
-        'Do not wrap the Codex prompt in extra policy prose or route-selection commentary.',
+        'If you choose "run_codex", extract the requested work into a structured execution object.',
         'Assume the primary repo for local work is the provided project root unless the user clearly names another path.',
+        'Be literal about exact file contents when the user specifies text to write.',
         'Schema:',
         '{',
         '  "action": "answer_directly" | "run_codex",',
@@ -108,8 +138,14 @@ export class ExecutionPlanner {
         '  "response_outline": string | null,',
         '  "task_title": string | null,',
         '  "working_directory": string | null,',
-        '  "codex_prompt": string | null,',
-        '  "expected_verification": string[]',
+        '  "execution": {',
+        '    "goal": string | null,',
+        '    "steps": string[],',
+        '    "target_paths": string[],',
+        '    "exact_file_contents": [{"path": string, "content": string}],',
+        '    "constraints": string[],',
+        '    "verification": string[]',
+        '  } | null',
         '}',
       ].join('\n'),
     });

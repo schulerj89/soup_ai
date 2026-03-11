@@ -26,6 +26,69 @@ function inferTaskTitle(text) {
   return truncateText(normalized, 90);
 }
 
+function buildCodexExecutionPrompt({ taskTitle, executionPlan }) {
+  const lines = [];
+
+  if (taskTitle) {
+    lines.push(`Task: ${taskTitle}`);
+    lines.push('');
+  }
+
+  if (executionPlan?.goal) {
+    lines.push('Goal:');
+    lines.push(executionPlan.goal);
+    lines.push('');
+  }
+
+  if (executionPlan?.targetPaths?.length) {
+    lines.push('Target paths:');
+    for (const targetPath of executionPlan.targetPaths) {
+      lines.push(`- ${targetPath}`);
+    }
+    lines.push('');
+  }
+
+  if (executionPlan?.steps?.length) {
+    lines.push('Required changes:');
+    for (const step of executionPlan.steps) {
+      lines.push(`- ${step}`);
+    }
+    lines.push('');
+  }
+
+  if (executionPlan?.exactFileContents?.length) {
+    lines.push('Exact file contents:');
+    lines.push('Write each file exactly as shown.');
+
+    for (const file of executionPlan.exactFileContents) {
+      lines.push('');
+      lines.push(`Path: ${file.path}`);
+      lines.push('Content:');
+      lines.push(file.content);
+    }
+
+    lines.push('');
+  }
+
+  if (executionPlan?.constraints?.length) {
+    lines.push('Constraints:');
+    for (const constraint of executionPlan.constraints) {
+      lines.push(`- ${constraint}`);
+    }
+    lines.push('');
+  }
+
+  if (executionPlan?.verification?.length) {
+    lines.push('Verification:');
+    for (const item of executionPlan.verification) {
+      lines.push(`- ${item}`);
+    }
+    lines.push('');
+  }
+
+  return lines.join('\n').trim();
+}
+
 function formatCodexResultMessage(result) {
   if (result.user_summary) {
     return result.user_summary;
@@ -257,9 +320,8 @@ export class MessageProcessor {
           reason: 'Execution planner unavailable.',
           responseOutline: null,
           taskTitle: null,
-          codexPrompt: null,
+          executionPlan: null,
           workingDirectory: projectRoot,
-          expectedVerification: [],
         };
 
     if (plan.action === 'run_codex') {
@@ -282,9 +344,14 @@ export class MessageProcessor {
         await this.onAcknowledgementQueued();
       }
 
+      const codexPrompt = buildCodexExecutionPrompt({
+        taskTitle: plan.taskTitle ?? inferTaskTitle(text),
+        executionPlan: plan.executionPlan,
+      });
+
       const codexResult = await this.runCodexTool({
         taskTitle: plan.taskTitle ?? inferTaskTitle(text),
-        prompt: plan.codexPrompt,
+        prompt: codexPrompt,
         workingDirectory: plan.workingDirectory ?? projectRoot,
         sourceJobId: job.id,
         sourceMessageId: message.id,

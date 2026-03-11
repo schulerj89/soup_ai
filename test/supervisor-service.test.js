@@ -44,9 +44,8 @@ test('SupervisorService ingests updates, processes jobs, and flushes outbound re
       reason: 'No repo execution needed for this test fixture.',
       responseOutline: `Reply directly to: ${messageText}`,
       taskTitle: null,
-      codexPrompt: null,
+      executionPlan: null,
       workingDirectory: null,
-      expectedVerification: [],
     }),
   };
 
@@ -105,9 +104,8 @@ test('SupervisorService skips when another active lease is present', async () =>
           reason: 'Skipped test route.',
           responseOutline: 'unused',
           taskTitle: null,
-          codexPrompt: null,
+          executionPlan: null,
           workingDirectory: null,
-          expectedVerification: [],
         }),
       },
       codexRunner: {
@@ -168,9 +166,8 @@ test('SupervisorService heartbeat renews the lease during long work', async () =
           reason: 'Heartbeat test route.',
           responseOutline: 'unused',
           taskTitle: null,
-          codexPrompt: null,
+          executionPlan: null,
           workingDirectory: null,
-          expectedVerification: [],
         }),
       },
       codexRunner: {
