@@ -93,7 +93,41 @@ export class SupervisorAgent {
       },
     );
 
-    return `${result.finalOutput ?? ''}`.trim() || 'Got it. I’ll start that now.';
+    return `${result.finalOutput ?? ''}`.trim() || "Got it. I'll start that now.";
+  }
+
+  async answerDirectly({ chatId, workspaceRoot, messageText, session = null, responseOutline = null, planReason = null }) {
+    const result = await this.runImpl(
+      this.agentFactory({
+        name: 'Tosh the AI Bot',
+        model: this.model,
+        instructions: [
+          this.systemPrompt,
+          '',
+          'Answer the user directly without calling local execution tools.',
+          'Keep the reply concise and factual.',
+          'If a plan outline is provided, follow it unless the user message clearly requires a correction.',
+          'Do not claim local work was performed.',
+        ].join('\n'),
+      }),
+      [
+        `User message:\n${messageText}`,
+        responseOutline ? `Planned response outline:\n${responseOutline}` : null,
+        planReason ? `Planner reason:\n${planReason}` : null,
+      ]
+        .filter(Boolean)
+        .join('\n\n'),
+      {
+        context: {
+          chatId,
+          workspaceRoot,
+        },
+        session,
+        maxTurns: 1,
+      },
+    );
+
+    return `${result.finalOutput ?? ''}`.trim() || 'No response text returned.';
   }
 
   async summarizeCodexResult({ chatId, workspaceRoot, userMessage, codexResult }) {

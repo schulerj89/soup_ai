@@ -33,10 +33,20 @@ test('SupervisorService ingests updates, processes jobs, and flushes outbound re
   };
 
   const agent = {
-    composeAcknowledgement: async () => 'I’ll take care of that now.',
-    handleMessage: async ({ messageText }) => ({
-      text: `Supervisor reply: ${messageText}`,
-      toolResults: [],
+    composeAcknowledgement: async () => "I'll take care of that now.",
+    summarizeCodexResult: async ({ codexResult }) => codexResult.summary,
+    answerDirectly: async ({ messageText }) => `Supervisor reply: ${messageText}`,
+  };
+
+  const executionPlanner = {
+    plan: async ({ messageText }) => ({
+      action: 'answer_directly',
+      reason: 'No repo execution needed for this test fixture.',
+      responseOutline: `Reply directly to: ${messageText}`,
+      taskTitle: null,
+      codexPrompt: null,
+      workingDirectory: null,
+      expectedVerification: [],
     }),
   };
 
@@ -49,12 +59,13 @@ test('SupervisorService ingests updates, processes jobs, and flushes outbound re
   };
 
   const service = new SupervisorService({
-    db,
-    telegramClient,
-    agent,
-    codexRunner,
-    config,
-    memorySummarizer,
+      db,
+      telegramClient,
+      agent,
+      executionPlanner,
+      codexRunner,
+      config,
+      memorySummarizer,
     logger: { log() {}, error() {} },
   });
 
@@ -64,10 +75,9 @@ test('SupervisorService ingests updates, processes jobs, and flushes outbound re
     assert.equal(summary.skipped, false);
     assert.equal(summary.updatesReceived, 1);
     assert.equal(summary.processedJobs, 1);
-    assert.equal(summary.sentMessages, 2);
-    assert.equal(sent.length, 2);
-    assert.equal(sent[0].text, 'I’ll take care of that now.');
-    assert.match(sent[1].text, /Codex completed successfully\./);
+    assert.equal(summary.sentMessages, 1);
+    assert.equal(sent.length, 1);
+    assert.equal(sent[0].text, 'Supervisor reply: Create a repo summary');
   } finally {
     db.close();
   }
@@ -87,7 +97,18 @@ test('SupervisorService skips when another active lease is present', async () =>
         },
       },
       agent: {
-        handleMessage: async () => ({ text: 'unused' }),
+        answerDirectly: async () => 'unused',
+      },
+      executionPlanner: {
+        plan: async () => ({
+          action: 'answer_directly',
+          reason: 'Skipped test route.',
+          responseOutline: 'unused',
+          taskTitle: null,
+          codexPrompt: null,
+          workingDirectory: null,
+          expectedVerification: [],
+        }),
       },
       codexRunner: {
         run: async () => ({ exitCode: 0, stdout: '', stderr: '', timedOut: false }),
@@ -139,7 +160,18 @@ test('SupervisorService heartbeat renews the lease during long work', async () =
         sendMessage: async () => ({ message_id: 1 }),
       },
       agent: {
-        handleMessage: async () => ({ text: 'unused' }),
+        answerDirectly: async () => 'unused',
+      },
+      executionPlanner: {
+        plan: async () => ({
+          action: 'answer_directly',
+          reason: 'Heartbeat test route.',
+          responseOutline: 'unused',
+          taskTitle: null,
+          codexPrompt: null,
+          workingDirectory: null,
+          expectedVerification: [],
+        }),
       },
       codexRunner: {
         run: async () => ({ exitCode: 0, stdout: '', stderr: '', timedOut: false }),

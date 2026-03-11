@@ -26,91 +26,6 @@ function inferTaskTitle(text) {
   return truncateText(normalized, 90);
 }
 
-function seemsLikeLocalWorkRequest(text) {
-  const normalized = `${text ?? ''}`.toLowerCase();
-  const strongPatterns = [
-    /\bfix\b/,
-    /\bupdate\b/,
-    /\bchange\b/,
-    /\bmodify\b/,
-    /\bedit\b/,
-    /\brefactor\b/,
-    /\bimplement\b/,
-    /\badd\b/,
-    /\bcreate\b/,
-    /\bwrite code\b/,
-    /\bcode change\b/,
-    /\bcommit\b/,
-    /\bpush\b/,
-    /\btest\b/,
-    /\bcodex\b/,
-    /\brepo\b/,
-    /\bproject\b/,
-    /\bfile\b/,
-    /\bsrc\b/,
-  ];
-
-  if (strongPatterns.some((pattern) => pattern.test(normalized))) {
-    return true;
-  }
-
-  const inspectionPattern =
-    /\b(review|inspect|check|look at|look through|analyze|analyse|summarize|explain|walk through|read)\b/;
-  const localReferencePattern =
-    /\b(repo|repository|project|codebase|workspace|folder|directory|readme|docs|package\.json|src|test)\b/;
-  const filePathPattern =
-    /(^|[\s(])([a-z]:)?[./\\]?[\w-]+([/\\][\w.-]+)+(\.[a-z0-9]+)?(?=$|[\s),.:;!?])/i;
-  const fileNamePattern = /\b[\w.-]+\.(js|mjs|cjs|ts|tsx|json|md|ps1|cmd|yml|yaml|toml)\b/;
-
-  return (
-    (inspectionPattern.test(normalized) && localReferencePattern.test(normalized)) ||
-    filePathPattern.test(normalized) ||
-    fileNamePattern.test(normalized)
-  );
-}
-
-function buildDirectCodexPrompt({ workspaceRoot, repoRoot, userMessage }) {
-  return [
-    'Handle the owner request directly in the target repo.',
-    'If the request is actionable, inspect the relevant files and proceed without a setup acknowledgement.',
-    'Ask a clarifying question only when a real blocker makes the task unsafe or impossible to complete.',
-    '',
-    'Owner request:',
-    userMessage,
-    '',
-    `Target repo: ${repoRoot}.`,
-    `Workspace root: ${workspaceRoot}.`,
-    'Interpret the owner request reasonably and perform the work directly in the target repo.',
-    'If the request is read-only, inspect the relevant files and answer from actual file contents.',
-    'If the request requires changes, inspect first, then implement, then verify.',
-    '',
-    'Required steps:',
-    '1. Inspect the relevant files immediately.',
-    '2. Execute the requested work immediately after inspection.',
-    '3. Run relevant tests or verification commands when applicable.',
-    '4. If the owner asked for git actions, commit and push only if those steps succeed.',
-    '5. Return the final result in the required structured format.',
-    '',
-    'Constraints:',
-    `- Stay inside ${repoRoot}.`,
-    '- Do not claim tests, commit, or push unless command output confirms them.',
-    '- Only use follow_up when the request is genuinely blocked and impossible to complete safely.',
-    '- If you can answer from repository inspection, do that instead of asking for more direction.',
-    '- Keep the final report factual and concise.',
-  ].join('\n');
-}
-
-function buildDirectCodexRetryPrompt(originalPrompt) {
-  return [
-    originalPrompt,
-    '',
-    'The previous attempt only acknowledged the request instead of doing the work.',
-    'Do not acknowledge, restate, or defer.',
-    'Inspect the relevant files now, complete the requested work if possible, and verify it.',
-    'If something is genuinely blocked, state the exact blocker after inspection.',
-  ].join('\n');
-}
-
 function formatCodexResultMessage(result) {
   if (result.user_summary) {
     return result.user_summary;
@@ -146,9 +61,18 @@ function formatCodexResultMessage(result) {
 }
 
 export class MessageProcessor {
-  constructor({ db, agent, codexRunner, config, memorySummarizer = null, onAcknowledgementQueued = null }) {
+  constructor({
+    db,
+    agent,
+    executionPlanner,
+    codexRunner,
+    config,
+    memorySummarizer = null,
+    onAcknowledgementQueued = null,
+  }) {
     this.db = db;
     this.agent = agent;
+    this.executionPlanner = executionPlanner;
     this.codexRunner = codexRunner;
     this.config = config;
     this.memorySummarizer = memorySummarizer;
@@ -173,7 +97,6 @@ export class MessageProcessor {
     workingDirectory,
     sourceJobId,
     sourceMessageId,
-    retryOnAcknowledgementOnly = false,
   }) {
     const previewCommand = [
       this.config.codexBin,
@@ -193,14 +116,7 @@ export class MessageProcessor {
     });
 
     try {
-      let result = await this.codexRunner.run({ prompt, workingDirectory });
-
-      if (retryOnAcknowledgementOnly && result.exitCode === 0 && result.acknowledgedOnly) {
-        result = await this.codexRunner.run({
-          prompt: buildDirectCodexRetryPrompt(prompt),
-          workingDirectory,
-        });
-      }
+      const result = await this.codexRunner.run({ prompt, workingDirectory });
 
       const structuredReport = result.structuredReport ?? null;
       const completed = result.exitCode === 0 && result.acknowledgedOnly !== true;
@@ -268,59 +184,6 @@ export class MessageProcessor {
     }
   }
 
-  async handleDirectCodexRequest({ job, message, text }) {
-    const repoRoot = this.config.projectRoot ?? process.cwd();
-    const acknowledgement =
-      typeof this.agent.composeAcknowledgement === 'function'
-        ? await this.agent.composeAcknowledgement({
-            chatId: message.chat_id,
-            messageText: text,
-            workspaceRoot: this.config.workspaceRoot,
-          })
-        : "Got it. I'll start that now.";
-
-    this.queueReply({
-      chatId: message.chat_id,
-      replyToMessageId: message.telegram_message_id,
-      text: acknowledgement,
-    });
-
-    if (this.onAcknowledgementQueued) {
-      await this.onAcknowledgementQueued();
-    }
-
-    const result = await this.runCodexTool({
-      taskTitle: inferTaskTitle(text),
-      prompt: buildDirectCodexPrompt({
-        workspaceRoot: this.config.workspaceRoot,
-        repoRoot,
-        userMessage: text,
-      }),
-      workingDirectory: repoRoot,
-      sourceJobId: job.id,
-      sourceMessageId: message.id,
-      retryOnAcknowledgementOnly: true,
-    });
-    const userSummary =
-      typeof this.agent.summarizeCodexResult === 'function'
-        ? await this.agent.summarizeCodexResult({
-            chatId: message.chat_id,
-            workspaceRoot: this.config.workspaceRoot,
-            userMessage: text,
-            codexResult: result,
-          })
-        : null;
-
-    this.queueReply({
-      chatId: message.chat_id,
-      replyToMessageId: message.telegram_message_id,
-      text: formatCodexResultMessage({
-        ...result,
-        user_summary: userSummary,
-      }),
-    });
-  }
-
   async processJob(job) {
     const message = this.db.getMessageById(job.message_id);
 
@@ -334,6 +197,7 @@ export class MessageProcessor {
       db: this.db,
       chatId: message.chat_id,
     });
+    const projectRoot = this.config.projectRoot ?? process.cwd();
 
     if (lower === '/help') {
       this.queueReply({
@@ -380,40 +244,110 @@ export class MessageProcessor {
       return;
     }
 
-    if (seemsLikeLocalWorkRequest(text)) {
-      await this.handleDirectCodexRequest({ job, message, text });
-      this.db.markMessageProcessed(message.id);
-      return;
-    }
-    const result = await this.agent.handleMessage({
-      chatId: message.chat_id,
-      messageText: text,
-      session,
-      workspaceRoot: this.config.workspaceRoot,
-      codexTool: async (params) =>
-        this.runCodexTool({
-          ...params,
-          sourceJobId: job.id,
-          sourceMessageId: message.id,
-        }),
-      codexStatusTool: async () => this.codexRunner.getStatus(),
-      recentTasksTool: async () =>
-        this.db.listRecentTasks(10).map((task) => ({
-          id: task.id,
-          title: task.title,
-          status: task.status,
-          result_summary: task.result_summary,
-          created_at: task.created_at,
-          completed_at: task.completed_at,
-        })),
-      queueSnapshotTool: async () => this.db.getQueueSnapshot(),
-    });
+    const plan = this.executionPlanner
+      ? await this.executionPlanner.plan({
+          chatId: message.chat_id,
+          messageText: text,
+          workspaceRoot: this.config.workspaceRoot,
+          projectRoot,
+          session,
+        })
+      : {
+          action: 'answer_directly',
+          reason: 'Execution planner unavailable.',
+          responseOutline: null,
+          taskTitle: null,
+          codexPrompt: null,
+          workingDirectory: projectRoot,
+          expectedVerification: [],
+        };
 
-    this.queueReply({
-      chatId: message.chat_id,
-      replyToMessageId: message.telegram_message_id,
-      text: result.text,
-    });
+    if (plan.action === 'run_codex') {
+      const acknowledgement =
+        typeof this.agent.composeAcknowledgement === 'function'
+          ? await this.agent.composeAcknowledgement({
+              chatId: message.chat_id,
+              messageText: text,
+              workspaceRoot: this.config.workspaceRoot,
+            })
+          : "Got it. I'll start that now.";
+
+      this.queueReply({
+        chatId: message.chat_id,
+        replyToMessageId: message.telegram_message_id,
+        text: acknowledgement,
+      });
+
+      if (this.onAcknowledgementQueued) {
+        await this.onAcknowledgementQueued();
+      }
+
+      const codexResult = await this.runCodexTool({
+        taskTitle: plan.taskTitle ?? inferTaskTitle(text),
+        prompt: plan.codexPrompt,
+        workingDirectory: plan.workingDirectory ?? projectRoot,
+        sourceJobId: job.id,
+        sourceMessageId: message.id,
+      });
+      const userSummary =
+        typeof this.agent.summarizeCodexResult === 'function'
+          ? await this.agent.summarizeCodexResult({
+              chatId: message.chat_id,
+              workspaceRoot: this.config.workspaceRoot,
+              userMessage: text,
+              codexResult,
+            })
+          : null;
+
+      this.queueReply({
+        chatId: message.chat_id,
+        replyToMessageId: message.telegram_message_id,
+        text: formatCodexResultMessage({
+          ...codexResult,
+          user_summary: userSummary,
+        }),
+      });
+    } else {
+      const replyText =
+        typeof this.agent.answerDirectly === 'function'
+          ? await this.agent.answerDirectly({
+              chatId: message.chat_id,
+              workspaceRoot: this.config.workspaceRoot,
+              messageText: text,
+              session,
+              responseOutline: plan.responseOutline,
+              planReason: plan.reason,
+            })
+          : ((await this.agent.handleMessage?.({
+              chatId: message.chat_id,
+              messageText: text,
+              session,
+              workspaceRoot: this.config.workspaceRoot,
+              codexTool: async (params) =>
+                this.runCodexTool({
+                  ...params,
+                  sourceJobId: job.id,
+                  sourceMessageId: message.id,
+                }),
+              codexStatusTool: async () => this.codexRunner.getStatus(),
+              recentTasksTool: async () =>
+                this.db.listRecentTasks(10).map((task) => ({
+                  id: task.id,
+                  title: task.title,
+                  status: task.status,
+                  result_summary: task.result_summary,
+                  created_at: task.created_at,
+                  completed_at: task.completed_at,
+                })),
+              queueSnapshotTool: async () => this.db.getQueueSnapshot(),
+            }))?.text ?? 'No response text returned.');
+
+      this.queueReply({
+        chatId: message.chat_id,
+        replyToMessageId: message.telegram_message_id,
+        text: replyText,
+      });
+    }
 
     if (this.memorySummarizer) {
       await this.memorySummarizer.summarizeSession(session);

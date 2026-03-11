@@ -1,5 +1,6 @@
 import { loadConfig } from '../config/load-config.js';
 import { AppDb } from '../db/app-db.js';
+import { ExecutionPlanner } from '../openai/execution-planner.js';
 import { SupervisorAgent } from '../openai/supervisor-agent.js';
 import { MemorySummarizer } from '../openai/memory-summarizer.js';
 import { SupervisorService } from '../services/supervisor-service.js';
@@ -25,6 +26,9 @@ async function main() {
     const agent = new SupervisorAgent({
       model: config.openAiModel,
     });
+    const executionPlanner = new ExecutionPlanner({
+      model: config.openAiModel,
+    });
     const memorySummarizer = new MemorySummarizer({
       model: config.openAiMemoryModel,
     });
@@ -32,6 +36,7 @@ async function main() {
       db,
       telegramClient,
       agent,
+      executionPlanner,
       codexRunner,
       config,
       memorySummarizer,

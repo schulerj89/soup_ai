@@ -14,6 +14,7 @@ export class SupervisorService {
     db,
     telegramClient,
     agent,
+    executionPlanner,
     codexRunner,
     config,
     memorySummarizer = null,
@@ -29,6 +30,7 @@ export class SupervisorService {
     this.messageProcessor = new MessageProcessor({
       db,
       agent,
+      executionPlanner,
       codexRunner,
       config,
       memorySummarizer,
