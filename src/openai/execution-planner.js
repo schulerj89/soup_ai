@@ -64,13 +64,13 @@ function normalizeExactFileContents(value) {
     .filter(Boolean);
 }
 
-function normalizePlan(rawPlan, projectRoot) {
+function normalizePlan(rawPlan, workspaceRoot) {
   const plan = rawPlan && typeof rawPlan === 'object' ? rawPlan : {};
   const action = plan.action === 'run_codex' ? 'run_codex' : 'answer_directly';
   const reason = `${plan.reason ?? ''}`.trim() || 'No reason provided.';
   const responseOutline = `${plan.response_outline ?? ''}`.trim() || null;
   const taskTitle = `${plan.task_title ?? ''}`.trim() || null;
-  const workingDirectory = `${plan.working_directory ?? ''}`.trim() || projectRoot;
+  const workingDirectory = `${plan.working_directory ?? ''}`.trim() || workspaceRoot;
   const execution = plan.execution && typeof plan.execution === 'object' ? plan.execution : {};
   const executionPlan = {
     goal: `${execution.goal ?? ''}`.trim() || null,
@@ -90,7 +90,7 @@ function normalizePlan(rawPlan, projectRoot) {
         'Answer directly and ask the user to restate the exact local change if they want repo work performed.',
       taskTitle: null,
       executionPlan: null,
-      workingDirectory: projectRoot,
+      workingDirectory: workspaceRoot,
     };
   }
 
@@ -129,7 +129,9 @@ export class ExecutionPlanner {
         'Use "answer_directly" for feasibility questions, product questions, brainstorming, clarification, or advice.',
         'Use "run_codex" only when the user clearly wants local repo or machine work performed.',
         'If you choose "run_codex", extract the requested work into a structured execution object.',
-        'Assume the primary repo for local work is the provided project root unless the user clearly names another path.',
+        'Default the working directory to the provided workspace root.',
+        'Use the provided project root only when the user explicitly mentions soup_ai, the current repo, or clearly wants work inside this repository.',
+        'If the user asks for work elsewhere under the workspace root, set working_directory to that broader or alternate location.',
         'Be literal about exact file contents when the user specifies text to write.',
         'Schema:',
         '{',
@@ -166,6 +168,6 @@ export class ExecutionPlanner {
       maxTurns: 1,
     });
 
-    return normalizePlan(safeJsonParse(`${result.finalOutput ?? ''}`.trim(), null), projectRoot);
+    return normalizePlan(safeJsonParse(`${result.finalOutput ?? ''}`.trim(), null), workspaceRoot);
   }
 }

@@ -80,3 +80,38 @@ test('ExecutionPlanner falls back to answer_directly for invalid Codex plans', a
   assert.match(plan.reason, /incomplete Codex execution plan/i);
   assert.equal(plan.executionPlan, null);
 });
+
+test('ExecutionPlanner defaults run_codex working directory to workspace root', async () => {
+  const planner = new ExecutionPlanner({
+    model: 'gpt-4.1-mini',
+    runImpl: async () => ({
+      finalOutput: JSON.stringify({
+        action: 'run_codex',
+        reason: 'The user asked for local machine work under the broader workspace.',
+        response_outline: null,
+        task_title: 'Create folder in Projects',
+        execution: {
+          goal: 'Create a new folder under Projects.',
+          steps: ['Create the requested folder.'],
+          target_paths: ['C:/Users/joshs/Projects/example-folder'],
+          exact_file_contents: [],
+          constraints: [],
+          verification: ['Confirm the folder exists.'],
+        },
+      }),
+    }),
+  });
+
+  const plan = await planner.plan({
+    chatId: '123',
+    messageText: 'Create a folder in my Projects directory.',
+    workspaceRoot: 'C:/Users/joshs/Projects',
+    projectRoot: 'C:/Users/joshs/Projects/soup_ai',
+    session: {
+      getSnapshot: async () => ({ summaryText: null, items: [] }),
+    },
+  });
+
+  assert.equal(plan.action, 'run_codex');
+  assert.equal(plan.workingDirectory, 'C:/Users/joshs/Projects');
+});
