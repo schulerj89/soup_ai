@@ -148,7 +148,7 @@ export class MessageProcessor {
         chatId: message.chat_id,
         replyToMessageId: message.telegram_message_id,
         text: [
-          'Soup AI health',
+          'Tosh the AI Bot health',
           `pendingJobs: ${snapshot.pendingJobs}`,
           `runningJobs: ${snapshot.runningJobs}`,
           `pendingOutbound: ${snapshot.pendingOutbound}`,
@@ -182,6 +182,17 @@ export class MessageProcessor {
           sourceJobId: job.id,
           sourceMessageId: message.id,
         }),
+      codexStatusTool: async () => this.codexRunner.getStatus(),
+      recentTasksTool: async () =>
+        this.db.listRecentTasks(10).map((task) => ({
+          id: task.id,
+          title: task.title,
+          status: task.status,
+          result_summary: task.result_summary,
+          created_at: task.created_at,
+          completed_at: task.completed_at,
+        })),
+      queueSnapshotTool: async () => this.db.getQueueSnapshot(),
     });
 
     this.queueReply({

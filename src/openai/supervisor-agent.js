@@ -1,34 +1,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import OpenAI from 'openai';
+import { Agent, run, tool } from '@openai/agents';
+import { z } from 'zod';
 import { projectRoot } from '../utils/paths.js';
-
-const TOOL_DEFINITION = {
-  type: 'function',
-  name: 'run_codex_exec',
-  description:
-    'Run local work through Codex inside the approved workspace root. Use only when local machine work is required.',
-  strict: true,
-  parameters: {
-    type: 'object',
-    additionalProperties: false,
-    properties: {
-      task_title: {
-        type: 'string',
-        description: 'Short title for the task record.',
-      },
-      prompt: {
-        type: 'string',
-        description: 'Complete prompt to send to codex exec.',
-      },
-      working_directory: {
-        type: 'string',
-        description: 'Absolute path inside the allowed workspace root.',
-      },
-    },
-    required: ['task_title', 'prompt', 'working_directory'],
-  },
-};
 
 function loadSystemPrompt() {
   const promptPath = path.join(projectRoot, 'docs', 'system-prompt.md');
@@ -46,73 +20,109 @@ function formatConversationHistory(history) {
 }
 
 export class SupervisorAgent {
-  constructor({ apiKey, model, client = null }) {
-    this.client = client ?? new OpenAI({ apiKey });
+  constructor({ model, runImpl = run, agentFactory = (options) => new Agent(options), toolFactory = tool }) {
     this.model = model;
+    this.runImpl = runImpl;
+    this.agentFactory = agentFactory;
+    this.toolFactory = toolFactory;
     this.systemPrompt = loadSystemPrompt();
   }
 
-  async handleMessage({ chatId, messageText, conversationHistory, workspaceRoot, codexTool }) {
-    if (typeof codexTool !== 'function') {
-      throw new Error('SupervisorAgent requires a codexTool callback for each handled message.');
+  buildAgent({ codexTool, codexStatusTool, recentTasksTool, queueSnapshotTool }) {
+    return this.agentFactory({
+      name: 'Tosh the AI Bot',
+      model: this.model,
+      instructions: (runContext) =>
+        [
+          this.systemPrompt,
+          '',
+          `Current workspace root: ${runContext.context.workspaceRoot}`,
+          `Telegram chat ID: ${runContext.context.chatId}`,
+        ].join('\n'),
+      tools: [
+        this.toolFactory({
+          name: 'run_codex_exec',
+          description:
+            'Run local work through Codex inside the approved workspace root. Use only when local machine work is required.',
+          parameters: z.object({
+            task_title: z.string().min(1),
+            prompt: z.string().min(1),
+            working_directory: z.string().min(1),
+          }),
+          execute: async (input) =>
+            codexTool({
+              taskTitle: input.task_title,
+              prompt: input.prompt,
+              workingDirectory: input.working_directory,
+            }),
+        }),
+        this.toolFactory({
+          name: 'get_codex_status',
+          description:
+            'Read local Codex configuration and recent Codex limits or usage telemetry for the current machine.',
+          parameters: z.object({}),
+          execute: async () => codexStatusTool(),
+        }),
+        this.toolFactory({
+          name: 'list_recent_tasks',
+          description: 'List the most recent local tasks tracked by Soup AI.',
+          parameters: z.object({}),
+          execute: async () => recentTasksTool(),
+        }),
+        this.toolFactory({
+          name: 'get_supervisor_snapshot',
+          description: 'Get the current local queue and task snapshot for the supervisor.',
+          parameters: z.object({}),
+          execute: async () => queueSnapshotTool(),
+        }),
+      ],
+    });
+  }
+
+  async handleMessage({
+    chatId,
+    messageText,
+    conversationHistory,
+    workspaceRoot,
+    codexTool,
+    codexStatusTool,
+    recentTasksTool,
+    queueSnapshotTool,
+  }) {
+    if (
+      typeof codexTool !== 'function' ||
+      typeof codexStatusTool !== 'function' ||
+      typeof recentTasksTool !== 'function' ||
+      typeof queueSnapshotTool !== 'function'
+    ) {
+      throw new Error('SupervisorAgent requires tool callbacks for each handled message.');
     }
 
     const userMessage = [
-      `Workspace root: ${workspaceRoot}`,
-      `Telegram chat ID: ${chatId}`,
       'Recent conversation history:',
       formatConversationHistory(conversationHistory),
       'Latest user message:',
       messageText,
     ].join('\n\n');
 
-    let response = await this.client.responses.create({
-      model: this.model,
-      instructions: this.systemPrompt,
-      tools: [TOOL_DEFINITION],
-      input: userMessage,
+    const agent = this.buildAgent({
+      codexTool,
+      codexStatusTool,
+      recentTasksTool,
+      queueSnapshotTool,
     });
 
-    const toolResults = [];
-
-    for (let iteration = 0; iteration < 3; iteration += 1) {
-      const toolCalls = (response.output ?? []).filter((item) => item.type === 'function_call');
-
-      if (toolCalls.length === 0) {
-        break;
-      }
-
-      const outputs = [];
-
-      for (const toolCall of toolCalls) {
-        const args = JSON.parse(toolCall.arguments);
-        const result = await codexTool({
-          taskTitle: args.task_title,
-          prompt: args.prompt,
-          workingDirectory: args.working_directory,
-        });
-
-        toolResults.push(result);
-        outputs.push({
-          type: 'function_call_output',
-          call_id: toolCall.call_id,
-          output: JSON.stringify(result),
-        });
-      }
-
-      response = await this.client.responses.create({
-        model: this.model,
-        instructions: this.systemPrompt,
-        previous_response_id: response.id,
-        tools: [TOOL_DEFINITION],
-        input: outputs,
-      });
-    }
+    const result = await this.runImpl(agent, userMessage, {
+      context: {
+        chatId,
+        workspaceRoot,
+      },
+      maxTurns: 8,
+    });
 
     return {
-      responseId: response.id,
-      text: response.output_text?.trim() || 'No response text returned.',
-      toolResults,
+      responseId: null,
+      text: `${result.finalOutput ?? ''}`.trim() || 'No response text returned.',
     };
   }
 }

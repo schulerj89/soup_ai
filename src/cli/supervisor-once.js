@@ -22,7 +22,6 @@ async function main() {
       timeoutMs: config.codexTimeoutMs,
     });
     const agent = new SupervisorAgent({
-      apiKey: config.openAiApiKey,
       model: config.openAiModel,
     });
     const service = new SupervisorService({
