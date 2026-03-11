@@ -10,6 +10,7 @@
   "scripts": {
     "setup": "node src/cli/setup.js",
     "discover:telegram": "node src/cli/discover-telegram.js",
+    "inspect:codex": "node src/cli/inspect-codex.js",
     "send:message": "node src/cli/send-message.js",
     "supervisor:once": "node src/cli/supervisor-once.js",
     "task:run": "cmd /c scripts\\run-supervisor.cmd",

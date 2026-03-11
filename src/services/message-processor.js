@@ -87,30 +87,35 @@ function formatRecentSessionItems(items) {
 
 function buildDirectCodexPrompt({ workspaceRoot, repoRoot, userMessage, sessionSummary, recentSessionItems }) {
   return [
-    `Workspace root: ${workspaceRoot}.`,
-    `Target repo: ${repoRoot}.`,
+    'Handle the owner request directly in the target repo.',
+    'If the request is actionable, inspect the relevant files and proceed without a setup acknowledgement.',
+    'Ask a clarifying question only when a real blocker makes the task unsafe or impossible to complete.',
     '',
+    'Owner request:',
+    userMessage,
+    '',
+    `Target repo: ${repoRoot}.`,
+    `Workspace root: ${workspaceRoot}.`,
     sessionSummary ? `Conversation summary:\n${sessionSummary}` : 'Conversation summary:\n(none)',
     recentSessionItems ? `Recent turns:\n${recentSessionItems}` : 'Recent turns:\n(none)',
     '',
-    'The owner requested local code or repo work. Do not stop to ask for clarification unless the request is genuinely impossible or ambiguous in a way that blocks safe implementation.',
-    'First inspect the existing codebase and infer the narrowest reasonable implementation from the request.',
-    'Then perform the work directly in the target repo, run relevant verification, and summarize actual results.',
+    'Interpret the owner request reasonably and perform the work directly in the target repo.',
+    'If the request is read-only, inspect the relevant files and answer from actual file contents.',
+    'If the request requires changes, inspect first, then implement, then verify.',
     '',
     'Required steps:',
-    '1. Inspect the relevant files before changing code.',
-    '2. Implement the requested code/repo changes in the target repo.',
-    '3. Run relevant tests or verification commands.',
+    '1. Inspect the relevant files immediately.',
+    '2. Execute the requested work immediately after inspection.',
+    '3. Run relevant tests or verification commands when applicable.',
     '4. If the owner asked for git actions, commit and push only if those steps succeed.',
-    '5. Return a concise factual report with files changed, verification run, results, and any commit hash/push status if applicable.',
+    '5. Return the final result in the required structured format.',
     '',
     'Constraints:',
     `- Stay inside ${repoRoot}.`,
     '- Do not claim tests, commit, or push unless command output confirms them.',
-    '- Do not stop with a generic clarification question if the request already contains enough direction to proceed.',
-    '',
-    'Owner request:',
-    userMessage,
+    '- Only use follow_up when the request is genuinely blocked and impossible to complete safely.',
+    '- If you can answer from repository inspection, do that instead of asking for more direction.',
+    '- Keep the final report factual and concise.',
   ].join('\n');
 }
 
@@ -266,7 +271,7 @@ export class MessageProcessor {
             messageText: text,
             workspaceRoot: this.config.workspaceRoot,
           })
-        : 'Got it. I’ll start that now.';
+        : "Got it. I'll start that now.";
 
     this.queueReply({
       chatId: message.chat_id,

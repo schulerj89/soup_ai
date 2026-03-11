@@ -89,7 +89,7 @@ test('MessageProcessor routes obvious code-change requests directly to Codex and
     assert.equal(outbound[0], "Got it. I'll start that now.");
     assert.equal(outbound[1], 'Changed files and ran tests.');
     assert.match(codexPrompt.prompt, /Conversation summary:/);
-    assert.match(codexPrompt.prompt, /Do not stop to ask for clarification/);
+    assert.match(codexPrompt.prompt, /Ask a clarifying question only when a real blocker/);
     assert.equal(codexPrompt.workingDirectory, 'C:/Users/joshs/Projects/soup_ai');
   } finally {
     db.close();

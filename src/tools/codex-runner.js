@@ -144,8 +144,52 @@ function safeJsonParse(value) {
   }
 }
 
+function parseJsonObject(value) {
+  const parsed = safeJsonParse(value);
+  return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : null;
+}
+
+function isAcknowledgementLikeText(text) {
+  const normalized = `${text ?? ''}`.trim();
+
+  if (!normalized) {
+    return true;
+  }
+
+  return /^(noted\.|using workspace root|workspace root noted|i(?:'|â€™|’)ll treat\b|i(?:'|â€™|’)m treating\b|recorded the workspace root)/i.test(
+    normalized,
+  );
+}
+
+function extractFinalAgentMessage(stdout) {
+  let finalMessage = null;
+
+  for (const rawLine of `${stdout ?? ''}`.split(/\r?\n/)) {
+    const line = rawLine.trim();
+
+    if (!line) {
+      continue;
+    }
+
+    const parsed = safeJsonParse(line);
+    if (!parsed || typeof parsed !== 'object') {
+      continue;
+    }
+
+    if (parsed.type === 'item.completed' && parsed.item?.type === 'agent_message' && typeof parsed.item.text === 'string') {
+      finalMessage = parsed.item.text;
+    }
+  }
+
+  return finalMessage;
+}
+
 function hasMeaningfulStructuredWork(report) {
   if (!report || report.completed !== true) {
+    return false;
+  }
+
+  if (`${report.follow_up ?? ''}`.trim()) {
     return false;
   }
 
@@ -153,8 +197,8 @@ function hasMeaningfulStructuredWork(report) {
     return true;
   }
 
-  const rawOutput = `${report.raw_user_visible_output ?? ''}`.trim();
-  return !/^(noted\.|using workspace root|i(?:'|’)ll treat\b|i(?:'|’)m treating\b)/i.test(rawOutput);
+  const candidateText = `${report.summary ?? ''}\n${report.raw_user_visible_output ?? ''}`.trim();
+  return !isAcknowledgementLikeText(candidateText);
 }
 
 export class CodexRunner {
@@ -199,6 +243,7 @@ export class CodexRunner {
       args.push('-m', modelOverride);
     }
 
+    args.push('--json', '--skip-git-repo-check');
     args.push(prompt);
     return args;
   }
@@ -446,13 +491,19 @@ export class CodexRunner {
         };
       }
 
-      const structuredReport = fs.existsSync(outputLastMessagePath)
-        ? safeJsonParse(fs.readFileSync(outputLastMessagePath, 'utf8'))
+      const outputLastMessage = fs.existsSync(outputLastMessagePath)
+        ? fs.readFileSync(outputLastMessagePath, 'utf8').trim()
         : null;
-      const acknowledgedOnly = finalResult.exitCode === 0 && !hasMeaningfulStructuredWork(structuredReport);
+      const finalAgentMessage = extractFinalAgentMessage(finalResult.stdout) ?? outputLastMessage;
+      const structuredReport = parseJsonObject(finalAgentMessage);
+      const acknowledgedOnly =
+        finalResult.exitCode === 0 &&
+        (structuredReport ? !hasMeaningfulStructuredWork(structuredReport) : isAcknowledgementLikeText(finalAgentMessage));
 
       return {
         ...finalResult,
+        outputLastMessage,
+        finalAgentMessage,
         structuredReport,
         acknowledgedOnly,
       };

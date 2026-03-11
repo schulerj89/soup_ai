@@ -175,6 +175,8 @@ test('CodexRunner places top-level search before exec and model after exec', () 
     'C:/Users/joshs/Projects/soup_ai',
     '-m',
     'gpt-5.4',
+    '--json',
+    '--skip-git-repo-check',
     'test prompt',
   ]);
 });
