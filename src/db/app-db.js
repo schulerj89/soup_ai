@@ -178,6 +178,25 @@ export class AppDb {
     return false;
   }
 
+  renewLease(key, owner, ttlMs) {
+    const now = this.now();
+    const expiresAt = new Date(Date.now() + ttlMs).toISOString();
+    const result = this.db
+      .prepare(
+        `UPDATE leases
+         SET expires_at = ?,
+             updated_at = ?
+         WHERE key = ? AND owner = ?`,
+      )
+      .run(expiresAt, now, key, owner);
+
+    return result.changes > 0;
+  }
+
+  getLease(key) {
+    return this.db.prepare('SELECT * FROM leases WHERE key = ?').get(key) ?? null;
+  }
+
   releaseLease(key, owner) {
     this.db.prepare('DELETE FROM leases WHERE key = ? AND owner = ?').run(key, owner);
   }

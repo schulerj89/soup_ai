@@ -5,12 +5,26 @@ function extractText(message) {
   return message?.text ?? message?.caption ?? null;
 }
 
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 export class SupervisorService {
-  constructor({ db, telegramClient, agent, codexRunner, config, memorySummarizer = null, logger = console }) {
+  constructor({
+    db,
+    telegramClient,
+    agent,
+    codexRunner,
+    config,
+    memorySummarizer = null,
+    logger = console,
+    timers = { setInterval, clearInterval, sleep },
+  }) {
     this.db = db;
     this.telegramClient = telegramClient;
     this.config = config;
     this.logger = logger;
+    this.timers = timers;
     this.messageProcessor = new MessageProcessor({
       db,
       agent,
@@ -119,14 +133,36 @@ export class SupervisorService {
     return sent;
   }
 
+  computeLeaseTtlMs() {
+    return this.config.supervisorLeaseTtlMs ?? this.config.codexTimeoutMs + 60000;
+  }
+
+  computeLeaseHeartbeatMs(leaseTtlMs) {
+    if (this.config.supervisorLeaseHeartbeatMs) {
+      return this.config.supervisorLeaseHeartbeatMs;
+    }
+
+    return Math.max(1000, Math.floor(leaseTtlMs / 3));
+  }
+
   async runOnce() {
     const owner = crypto.randomUUID();
-    const acquired = this.db.acquireLease('supervisor_once', owner, this.config.codexTimeoutMs + 60000);
+    const leaseTtlMs = this.computeLeaseTtlMs();
+    const leaseHeartbeatMs = this.computeLeaseHeartbeatMs(leaseTtlMs);
+    const acquired = this.db.acquireLease('supervisor_once', owner, leaseTtlMs);
 
     if (!acquired) {
       this.logger.log('Another Soup AI run is still active. Skipping this tick.');
       return { skipped: true };
     }
+
+    const heartbeat = this.timers.setInterval(() => {
+      const renewed = this.db.renewLease('supervisor_once', owner, leaseTtlMs);
+
+      if (!renewed) {
+        this.logger.error('Failed to renew supervisor lease; another run may take over after expiry.');
+      }
+    }, leaseHeartbeatMs);
 
     try {
       const offset = this.db.getCursor('telegram_updates_offset', 0);
@@ -148,6 +184,7 @@ export class SupervisorService {
         sentMessages,
       };
     } finally {
+      this.timers.clearInterval(heartbeat);
       this.db.releaseLease('supervisor_once', owner);
     }
   }
