@@ -9,16 +9,6 @@ function loadSystemPrompt() {
   return fs.readFileSync(promptPath, 'utf8');
 }
 
-function formatConversationHistory(history) {
-  if (!history.length) {
-    return 'No prior conversation history is stored yet.';
-  }
-
-  return history
-    .map((item) => `${item.direction === 'inbound' ? 'user' : 'assistant'}: ${item.message_text}`)
-    .join('\n');
-}
-
 export class SupervisorAgent {
   constructor({ model, runImpl = run, agentFactory = (options) => new Agent(options), toolFactory = tool }) {
     this.model = model;
@@ -82,7 +72,7 @@ export class SupervisorAgent {
   async handleMessage({
     chatId,
     messageText,
-    conversationHistory,
+    session,
     workspaceRoot,
     codexTool,
     codexStatusTool,
@@ -98,13 +88,6 @@ export class SupervisorAgent {
       throw new Error('SupervisorAgent requires tool callbacks for each handled message.');
     }
 
-    const userMessage = [
-      'Recent conversation history:',
-      formatConversationHistory(conversationHistory),
-      'Latest user message:',
-      messageText,
-    ].join('\n\n');
-
     const agent = this.buildAgent({
       codexTool,
       codexStatusTool,
@@ -112,11 +95,12 @@ export class SupervisorAgent {
       queueSnapshotTool,
     });
 
-    const result = await this.runImpl(agent, userMessage, {
+    const result = await this.runImpl(agent, messageText, {
       context: {
         chatId,
         workspaceRoot,
       },
+      session,
       maxTurns: 8,
     });
 

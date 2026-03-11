@@ -7,6 +7,7 @@ import { projectRoot, resolveProjectPath } from '../utils/paths.js';
 const RawEnvSchema = z.object({
   OPENAI_API_KEY: z.string().trim().optional(),
   OPENAI_MODEL: z.string().trim().default('gpt-4.1-mini'),
+  OPENAI_MEMORY_MODEL: z.string().trim().optional(),
   TELEGRAM_BOT_TOKEN: z.string().trim().optional(),
   TELEGRAM_ALLOWED_CHAT_IDS: z.string().trim().optional(),
   TELEGRAM_API_BASE_URL: z.string().trim().default('https://api.telegram.org'),
@@ -78,6 +79,7 @@ export function loadConfig(options = {}) {
   return {
     openAiApiKey: raw.OPENAI_API_KEY,
     openAiModel: raw.OPENAI_MODEL,
+    openAiMemoryModel: raw.OPENAI_MEMORY_MODEL ?? raw.OPENAI_MODEL,
     telegramBotToken: raw.TELEGRAM_BOT_TOKEN,
     telegramAllowedChatIds: allowedChatIds,
     telegramApiBaseUrl: raw.TELEGRAM_API_BASE_URL.replace(/\/$/, ''),

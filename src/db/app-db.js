@@ -125,6 +125,18 @@ export class AppDb {
       .run(key, toJson(value), now);
   }
 
+  getAgentSessionState(chatId) {
+    return this.getState(`agent_session:${chatId}`, null);
+  }
+
+  setAgentSessionState(chatId, value) {
+    this.setState(`agent_session:${chatId}`, value);
+  }
+
+  clearAgentSessionState(chatId) {
+    this.db.prepare('DELETE FROM app_state WHERE key = ?').run(`agent_session:${chatId}`);
+  }
+
   getCursor(key, fallback = 0) {
     const value = this.getState(key, fallback);
     return Number.isFinite(value) ? value : fallback;

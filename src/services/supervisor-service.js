@@ -6,7 +6,7 @@ function extractText(message) {
 }
 
 export class SupervisorService {
-  constructor({ db, telegramClient, agent, codexRunner, config, logger = console }) {
+  constructor({ db, telegramClient, agent, codexRunner, config, memorySummarizer = null, logger = console }) {
     this.db = db;
     this.telegramClient = telegramClient;
     this.config = config;
@@ -16,6 +16,7 @@ export class SupervisorService {
       agent,
       codexRunner,
       config,
+      memorySummarizer,
     });
   }
 

@@ -38,6 +38,10 @@ test('SupervisorService ingests updates, processes jobs, and flushes outbound re
     }),
   };
 
+  const memorySummarizer = {
+    summarizeSession: async () => ({ summarized: false }),
+  };
+
   const codexRunner = {
     run: async () => ({ exitCode: 0, stdout: '', stderr: '', timedOut: false }),
   };
@@ -48,6 +52,7 @@ test('SupervisorService ingests updates, processes jobs, and flushes outbound re
     agent,
     codexRunner,
     config,
+    memorySummarizer,
     logger: { log() {}, error() {} },
   });
 

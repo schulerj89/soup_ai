@@ -77,6 +77,11 @@ async function main() {
       'OpenAI model',
       existingEnv.OPENAI_MODEL ?? 'gpt-4.1-mini',
     );
+    const openAiMemoryModel = await promptValue(
+      rl,
+      'OpenAI memory model',
+      existingEnv.OPENAI_MEMORY_MODEL ?? existingEnv.OPENAI_MODEL ?? 'gpt-4.1-mini',
+    );
     const dbPath = await promptValue(
       rl,
       'SQLite DB path',
@@ -92,6 +97,7 @@ async function main() {
     const contents = [
       `OPENAI_API_KEY=${openAiApiKey}`,
       `OPENAI_MODEL=${openAiModel}`,
+      `OPENAI_MEMORY_MODEL=${openAiMemoryModel}`,
       `TELEGRAM_BOT_TOKEN=${telegramBotToken}`,
       `TELEGRAM_ALLOWED_CHAT_IDS=${allowedChatIds}`,
       `TELEGRAM_API_BASE_URL=${existingEnv.TELEGRAM_API_BASE_URL ?? 'https://api.telegram.org'}`,

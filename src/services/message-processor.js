@@ -1,4 +1,5 @@
 import { splitTelegramText, truncateText } from '../utils/text.js';
+import { SqliteSession } from '../openai/sqlite-session.js';
 
 function formatTaskList(tasks) {
   if (tasks.length === 0) {
@@ -16,11 +17,12 @@ function formatTaskList(tasks) {
 }
 
 export class MessageProcessor {
-  constructor({ db, agent, codexRunner, config }) {
+  constructor({ db, agent, codexRunner, config, memorySummarizer = null }) {
     this.db = db;
     this.agent = agent;
     this.codexRunner = codexRunner;
     this.config = config;
+    this.memorySummarizer = memorySummarizer;
   }
 
   queueReply({ chatId, text, replyToMessageId }) {
@@ -170,11 +172,14 @@ export class MessageProcessor {
       return;
     }
 
-    const conversationHistory = this.db.listConversation(message.chat_id, 8);
+    const session = new SqliteSession({
+      db: this.db,
+      chatId: message.chat_id,
+    });
     const result = await this.agent.handleMessage({
       chatId: message.chat_id,
       messageText: text,
-      conversationHistory,
+      session,
       workspaceRoot: this.config.workspaceRoot,
       codexTool: async (params) =>
         this.runCodexTool({
@@ -200,6 +205,10 @@ export class MessageProcessor {
       replyToMessageId: message.telegram_message_id,
       text: result.text,
     });
+
+    if (this.memorySummarizer) {
+      await this.memorySummarizer.summarizeSession(session);
+    }
 
     this.db.markMessageProcessed(message.id);
   }

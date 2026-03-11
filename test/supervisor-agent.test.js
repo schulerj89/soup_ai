@@ -23,7 +23,7 @@ test('SupervisorAgent builds a Tosh agent and returns final output text', async 
   const result = await agent.handleMessage({
     chatId: '123',
     messageText: 'run it',
-    conversationHistory: [],
+    session: { getSessionId: async () => 'session-123' },
     workspaceRoot: 'C:/Users/joshs/Projects',
     codexTool: async () => ({ ok: true }),
     codexStatusTool: async () => ({ ok: true }),
