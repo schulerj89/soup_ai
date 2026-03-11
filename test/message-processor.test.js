@@ -230,7 +230,7 @@ test('MessageProcessor reports acknowledgement-only Codex runs as incomplete whe
           exitCode: 0,
           timedOut: false,
           structuredReport: {
-            completed: true,
+            completed: false,
             summary: 'Noted the request.',
             files_changed: [],
             verification: [],
@@ -258,6 +258,90 @@ test('MessageProcessor reports acknowledgement-only Codex runs as incomplete whe
 
     assert.equal(latestTask.status, 'failed');
     assert.equal(outbound[1], 'Codex did not complete the requested work.');
+  } finally {
+    db.close();
+  }
+});
+
+test('MessageProcessor reports partial Codex runs when changes were made but the task was not completed', async () => {
+  const db = new AppDb({ dbPath: ':memory:' });
+
+  try {
+    const inbound = db.insertInboundMessage({
+      updateId: 5,
+      telegramMessageId: 15,
+      chatId: 'chat-5',
+      replyToMessageId: null,
+      text: 'Create the exact README file.',
+      status: 'received',
+      raw: {},
+    });
+    const job = db.queueJob({
+      jobType: 'process_inbound_message',
+      messageId: inbound.id,
+      payload: {},
+    });
+
+    const processor = new MessageProcessor({
+      db,
+      agent: {
+        summarizeCodexResult: async ({ codexResult }) => codexResult.summary,
+      },
+      executionPlanner: {
+        plan: async () => ({
+          action: 'run_codex',
+          reason: 'User asked for local repo work.',
+          responseOutline: null,
+          taskTitle: 'Create exact README',
+          executionPlan: {
+            goal: 'Create the exact requested README file.',
+            steps: ['Write the requested file.'],
+            targetPaths: ['telegram_codex_e2e/readme.md'],
+            exactFileContents: [{ path: 'telegram_codex_e2e/readme.md', content: 'telegram smoke test' }],
+            constraints: ['Do not substitute another filename or placeholder content.'],
+            verification: ['Read the file back.'],
+          },
+          workingDirectory: 'C:/Users/joshs/Projects/soup_ai',
+        }),
+      },
+      codexRunner: {
+        run: async () => ({
+          workingDirectory: 'C:/Users/joshs/Projects/soup_ai',
+          command: 'codex exec ...',
+          exitCode: 0,
+          timedOut: false,
+          structuredReport: {
+            completed: true,
+            summary: 'Created a placeholder README.',
+            files_changed: ['telegram_codex_e2e/README.md'],
+            verification: ['Read back the placeholder README.'],
+            commit_hash: null,
+            push_succeeded: null,
+            follow_up: 'Can refine the README further if needed.',
+            raw_user_visible_output: 'Created the README placeholder.',
+          },
+          acknowledgedOnly: true,
+          stdout: '',
+          stderr: '',
+        }),
+      },
+      config: buildConfig(),
+    });
+
+    await processor.processJob(job);
+
+    const latestTask = db.listRecentTasks(1)[0];
+    const toolRun = JSON.parse(db.db.prepare('SELECT output_json FROM tool_runs ORDER BY id DESC LIMIT 1').get().output_json);
+    const outbound = db
+      .db.prepare("SELECT message_text FROM messages WHERE direction = 'outbound' ORDER BY id ASC")
+      .all()
+      .map((row) => row.message_text);
+
+    assert.equal(latestTask.status, 'failed');
+    assert.equal(latestTask.result_summary, 'Codex changed the repo but did not complete the requested work.');
+    assert.equal(toolRun.result_status, 'partial');
+    assert.equal(outbound[0], "Got it. I'll start that now.");
+    assert.equal(outbound[1], 'Codex changed the repo but did not complete the requested work.');
   } finally {
     db.close();
   }

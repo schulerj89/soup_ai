@@ -42,9 +42,6 @@ test('SupervisorAgent builds a Tosh agent and returns final output text', async 
 test('SupervisorAgent can compose a short acknowledgement', async () => {
   const agent = new SupervisorAgent({
     model: 'gpt-4.1-mini',
-    runImpl: async () => ({
-      finalOutput: 'Got it. I’m starting that now.',
-    }),
   });
 
   const result = await agent.composeAcknowledgement({
@@ -53,5 +50,5 @@ test('SupervisorAgent can compose a short acknowledgement', async () => {
     workspaceRoot: 'C:/Users/joshs/Projects',
   });
 
-  assert.equal(result, 'Got it. I’m starting that now.');
+  assert.equal(result, "Got it. I'll start that now.");
 });

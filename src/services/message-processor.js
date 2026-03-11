@@ -123,6 +123,33 @@ function formatCodexResultMessage(result) {
   return lines.join('\n');
 }
 
+function hasRecordedWork(result) {
+  const report = result?.structuredReport;
+
+  if (!report || typeof report !== 'object') {
+    return false;
+  }
+
+  return (
+    report.completed === true ||
+    (Array.isArray(report.files_changed) && report.files_changed.length > 0) ||
+    (Array.isArray(report.verification) && report.verification.length > 0) ||
+    Boolean(report.commit_hash)
+  );
+}
+
+function classifyCodexResult(result) {
+  if (result.exitCode !== 0) {
+    return 'failed';
+  }
+
+  if (result.acknowledgedOnly === true) {
+    return hasRecordedWork(result) ? 'partial' : 'failed';
+  }
+
+  return 'completed';
+}
+
 export class MessageProcessor {
   constructor({
     db,
@@ -182,12 +209,15 @@ export class MessageProcessor {
       const result = await this.codexRunner.run({ prompt, workingDirectory });
 
       const structuredReport = result.structuredReport ?? null;
-      const completed = result.exitCode === 0 && result.acknowledgedOnly !== true;
+      const resultStatus = classifyCodexResult(result);
+      const completed = resultStatus === 'completed';
       const summary =
-        result.exitCode !== 0
-          ? `Codex failed with exit code ${result.exitCode}.`
-          : result.acknowledgedOnly
-            ? 'Codex did not complete the requested work.'
+        resultStatus === 'failed'
+          ? result.exitCode !== 0
+            ? `Codex failed with exit code ${result.exitCode}.`
+            : 'Codex did not complete the requested work.'
+          : resultStatus === 'partial'
+            ? 'Codex changed the repo but did not complete the requested work.'
             : structuredReport?.summary?.trim() || 'Codex completed successfully.';
 
       if (completed) {
@@ -205,6 +235,7 @@ export class MessageProcessor {
         command: result.command,
         exit_code: result.exitCode,
         timed_out: result.timedOut,
+        result_status: resultStatus,
         acknowledged_only: result.acknowledgedOnly ?? false,
         structured_report: structuredReport,
         stdout: truncateText(result.stdout, this.config.codexMaxOutputChars),
