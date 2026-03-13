@@ -3,7 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { CodexRunner } from '../src/tools/codex-runner.js';
+import { CodexRunner, parseCodexStructuredReport } from '../src/tools/codex-runner.js';
 
 test('CodexRunner reads config and recent rate-limit telemetry', async () => {
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'soup-ai-codex-'));
@@ -179,4 +179,45 @@ test('CodexRunner places top-level search before exec and model after exec', () 
     '--skip-git-repo-check',
     'test prompt',
   ]);
+});
+
+test('parseCodexStructuredReport accepts a marker-delimited JSON ending', () => {
+  assert.deepEqual(
+    parseCodexStructuredReport(
+      [
+        'Updated the requested files and ran tests.',
+        '',
+        'CODEX_RESULT_JSON:',
+        '{"completed":true,"summary":"Updated files.","files_changed":["src/example.js"],"verification":["npm test"],"commit_hash":null,"push_succeeded":null,"follow_up":null,"raw_user_visible_output":"Updated the requested files and ran tests."}',
+      ].join('\n'),
+    ),
+    {
+      completed: true,
+      summary: 'Updated files.',
+      files_changed: ['src/example.js'],
+      verification: ['npm test'],
+      commit_hash: null,
+      push_succeeded: null,
+      follow_up: null,
+      raw_user_visible_output: 'Updated the requested files and ran tests.',
+    },
+  );
+});
+
+test('parseCodexStructuredReport falls back to the trailing JSON object without a marker', () => {
+  assert.deepEqual(
+    parseCodexStructuredReport(
+      'Applied the change.\n{"completed":false,"summary":"Blocked on follow-up.","files_changed":[],"verification":[],"commit_hash":null,"push_succeeded":null,"follow_up":"Need approval.","raw_user_visible_output":"Blocked on follow-up."}',
+    ),
+    {
+      completed: false,
+      summary: 'Blocked on follow-up.',
+      files_changed: [],
+      verification: [],
+      commit_hash: null,
+      push_succeeded: null,
+      follow_up: 'Need approval.',
+      raw_user_visible_output: 'Blocked on follow-up.',
+    },
+  );
 });

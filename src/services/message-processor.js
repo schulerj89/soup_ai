@@ -106,6 +106,17 @@ function buildCodexExecutionPrompt({ taskTitle, executionPlan }) {
     lines.push('');
   }
 
+  lines.push('Final response requirements:');
+  lines.push('- Do the requested work before producing the final response.');
+  lines.push('- End the final response with a JSON object that matches the provided Codex output schema.');
+  lines.push('- Put that JSON object after the exact marker `CODEX_RESULT_JSON:`.');
+  lines.push('- Do not write any text after the JSON object.');
+  lines.push('');
+  lines.push('Required ending format:');
+  lines.push('CODEX_RESULT_JSON:');
+  lines.push('{"completed":true,"summary":"...","files_changed":[],"verification":[],"commit_hash":null,"push_succeeded":null,"follow_up":null,"raw_user_visible_output":"..."}');
+  lines.push('');
+
   return lines.join('\n').trim();
 }
 

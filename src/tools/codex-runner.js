@@ -149,6 +149,47 @@ function parseJsonObject(value) {
   return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : null;
 }
 
+function extractTrailingJsonObject(value) {
+  const normalized = `${value ?? ''}`.trim();
+
+  if (!normalized.endsWith('}')) {
+    return null;
+  }
+
+  for (let index = normalized.lastIndexOf('{'); index >= 0; index = normalized.lastIndexOf('{', index - 1)) {
+    const candidate = normalized.slice(index).trim();
+    const parsed = parseJsonObject(candidate);
+
+    if (parsed) {
+      return parsed;
+    }
+  }
+
+  return null;
+}
+
+export function parseCodexStructuredReport(value) {
+  const normalized = `${value ?? ''}`.trim();
+
+  if (!normalized) {
+    return null;
+  }
+
+  const direct = parseJsonObject(normalized);
+  if (direct) {
+    return direct;
+  }
+
+  const marker = 'CODEX_RESULT_JSON:';
+  const markerIndex = normalized.lastIndexOf(marker);
+
+  if (markerIndex >= 0) {
+    return extractTrailingJsonObject(normalized.slice(markerIndex + marker.length));
+  }
+
+  return extractTrailingJsonObject(normalized);
+}
+
 function isAcknowledgementLikeText(text) {
   const normalized = `${text ?? ''}`.trim();
 
@@ -495,7 +536,7 @@ export class CodexRunner {
         ? fs.readFileSync(outputLastMessagePath, 'utf8').trim()
         : null;
       const finalAgentMessage = extractFinalAgentMessage(finalResult.stdout) ?? outputLastMessage;
-      const structuredReport = parseJsonObject(finalAgentMessage);
+      const structuredReport = parseCodexStructuredReport(finalAgentMessage);
       const acknowledgedOnly =
         finalResult.exitCode === 0 &&
         (structuredReport ? !hasMeaningfulStructuredWork(structuredReport) : isAcknowledgementLikeText(finalAgentMessage));

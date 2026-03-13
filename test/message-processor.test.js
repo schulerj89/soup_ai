@@ -520,6 +520,8 @@ test('MessageProcessor renders exact file contents explicitly for Codex', async 
     assert.match(renderedPrompt.prompt, /Path: telegram_codex_e2e\/readme\.md/);
     assert.match(renderedPrompt.prompt, /Content:\ntelegram smoke test/);
     assert.match(renderedPrompt.prompt, /Constraints:\n- Do not add any extra text\./);
+    assert.match(renderedPrompt.prompt, /Final response requirements:/);
+    assert.match(renderedPrompt.prompt, /CODEX_RESULT_JSON:/);
   } finally {
     db.close();
   }
