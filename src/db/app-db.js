@@ -425,6 +425,19 @@ export class AppDb {
       .run(resultSummary ?? null, exitCode ?? null, this.now(), id);
   }
 
+  markTaskPartial(id, { resultSummary, exitCode }) {
+    this.db
+      .prepare(
+        `UPDATE tasks
+         SET status = 'partial',
+             result_summary = ?,
+             codex_exit_code = ?,
+             completed_at = ?
+         WHERE id = ?`,
+      )
+      .run(resultSummary ?? null, exitCode ?? null, this.now(), id);
+  }
+
   failTask(id, { resultSummary, exitCode }) {
     this.db
       .prepare(

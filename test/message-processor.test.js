@@ -354,11 +354,90 @@ test('MessageProcessor reports partial Codex runs when changes were made but the
       .all()
       .map((row) => row.message_text);
 
-    assert.equal(latestTask.status, 'failed');
+    assert.equal(latestTask.status, 'partial');
     assert.equal(latestTask.result_summary, 'Codex changed the repo but did not complete the requested work.');
     assert.equal(toolRun.result_status, 'partial');
     assert.equal(outbound[0], "Got it. I'll start that now.");
     assert.equal(outbound[1], 'Codex changed the repo but did not complete the requested work.');
+  } finally {
+    db.close();
+  }
+});
+
+test('MessageProcessor keeps follow-up-required Codex runs out of completed state', async () => {
+  const db = new AppDb({ dbPath: ':memory:' });
+
+  try {
+    const inbound = db.insertInboundMessage({
+      updateId: 6,
+      telegramMessageId: 16,
+      chatId: 'chat-6',
+      replyToMessageId: null,
+      text: 'Finish the migration.',
+      status: 'received',
+      raw: {},
+    });
+    const job = db.queueJob({
+      jobType: 'process_inbound_message',
+      messageId: inbound.id,
+      payload: {},
+    });
+
+    const processor = new MessageProcessor({
+      db,
+      agent: {
+        composeAcknowledgement: async () => "Got it. I'll start that now.",
+        summarizeCodexResult: async ({ codexResult }) => codexResult.summary,
+      },
+      executionPlanner: {
+        plan: async () => ({
+          action: 'run_codex',
+          reason: 'User requested local repo work.',
+          responseOutline: null,
+          taskTitle: 'Finish migration',
+          executionPlan: {
+            goal: 'Finish the migration.',
+            steps: ['Apply the remaining migration work.'],
+            targetPaths: ['src/migrate.js'],
+            exactFileContents: [],
+            constraints: [],
+            verification: ['npm test'],
+          },
+          workingDirectory: 'C:/Users/joshs/Projects/soup_ai',
+        }),
+      },
+      codexRunner: {
+        run: async () => ({
+          workingDirectory: 'C:/Users/joshs/Projects/soup_ai',
+          command: 'codex exec ...',
+          exitCode: 0,
+          timedOut: false,
+          structuredReport: {
+            completed: true,
+            summary: 'Applied part of the migration.',
+            files_changed: ['src/migrate.js'],
+            verification: ['npm test'],
+            commit_hash: null,
+            push_succeeded: null,
+            follow_up: 'Need to update the rollback script.',
+            raw_user_visible_output: 'Applied part of the migration.',
+          },
+          acknowledgedOnly: false,
+          stdout: '',
+          stderr: '',
+        }),
+      },
+      config: buildConfig(),
+    });
+
+    await processor.processJob(job);
+
+    const latestTask = db.listRecentTasks(1)[0];
+    const toolRun = JSON.parse(db.db.prepare('SELECT output_json FROM tool_runs ORDER BY id DESC LIMIT 1').get().output_json);
+
+    assert.equal(latestTask.status, 'partial');
+    assert.equal(latestTask.result_summary, 'Codex changed the repo but did not complete the requested work.');
+    assert.equal(toolRun.result_status, 'partial');
   } finally {
     db.close();
   }

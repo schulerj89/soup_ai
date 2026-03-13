@@ -74,3 +74,30 @@ test('AppDb keeps failed outbound messages queued for retry', () => {
     db.close();
   }
 });
+
+test('AppDb can persist partial task outcomes separately from failed tasks', () => {
+  const db = new AppDb({ dbPath: ':memory:' });
+
+  try {
+    const task = db.createTask({
+      sourceJobId: null,
+      sourceMessageId: null,
+      title: 'Update README',
+      details: 'Make a partial repo change',
+      codexCommand: 'codex exec ...',
+    });
+
+    db.markTaskPartial(task.id, {
+      resultSummary: 'Changed files but left follow-up work.',
+      exitCode: 0,
+    });
+
+    const stored = db.listRecentTasks(1)[0];
+    assert.equal(stored.status, 'partial');
+    assert.equal(stored.result_summary, 'Changed files but left follow-up work.');
+    assert.equal(stored.codex_exit_code, 0);
+    assert.ok(stored.completed_at);
+  } finally {
+    db.close();
+  }
+});

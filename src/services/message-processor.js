@@ -158,16 +158,26 @@ function hasRecordedWork(result) {
   );
 }
 
+function reportHasFollowUp(report) {
+  return `${report?.follow_up ?? ''}`.trim().length > 0;
+}
+
 function classifyCodexResult(result) {
   if (result.exitCode !== 0) {
     return 'failed';
   }
 
-  if (result.acknowledgedOnly === true) {
+  const report = result?.structuredReport;
+
+  if (report && typeof report === 'object') {
+    if (report.completed === true && !reportHasFollowUp(report) && result.acknowledgedOnly !== true) {
+      return 'completed';
+    }
+
     return hasRecordedWork(result) ? 'partial' : 'failed';
   }
 
-  return 'completed';
+  return result.acknowledgedOnly === true ? 'failed' : 'completed';
 }
 
 export class MessageProcessor {
@@ -240,8 +250,10 @@ export class MessageProcessor {
             ? 'Codex changed the repo but did not complete the requested work.'
             : structuredReport?.summary?.trim() || 'Codex completed successfully.';
 
-      if (completed) {
+      if (resultStatus === 'completed') {
         this.db.completeTask(task.id, { resultSummary: summary, exitCode: result.exitCode });
+      } else if (resultStatus === 'partial') {
+        this.db.markTaskPartial(task.id, { resultSummary: summary, exitCode: result.exitCode });
       } else {
         this.db.failTask(task.id, { resultSummary: summary, exitCode: result.exitCode });
       }
