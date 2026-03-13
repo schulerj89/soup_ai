@@ -14,7 +14,7 @@ function createSessionTextItem(role, text, partType) {
   };
 }
 
-function buildCodexSessionItems({ userMessage, assistantReply }) {
+function buildSessionItems({ userMessage, assistantReply }) {
   return [
     createSessionTextItem('user', userMessage, 'input_text'),
     createSessionTextItem('assistant', assistantReply, 'output_text'),
@@ -427,7 +427,7 @@ export class MessageProcessor {
       });
 
       await session.addItems(
-        buildCodexSessionItems({
+        buildSessionItems({
           userMessage: text,
           assistantReply: userSummary || codexResult.summary,
         }),
@@ -472,6 +472,13 @@ export class MessageProcessor {
         replyToMessageId: message.telegram_message_id,
         text: replyText,
       });
+
+      await session.addItems(
+        buildSessionItems({
+          userMessage: text,
+          assistantReply: replyText,
+        }),
+      );
     }
 
     if (this.memorySummarizer) {

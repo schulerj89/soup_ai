@@ -115,3 +115,43 @@ test('ExecutionPlanner defaults run_codex working directory to workspace root', 
   assert.equal(plan.action, 'run_codex');
   assert.equal(plan.workingDirectory, 'C:/Users/joshs/Projects');
 });
+
+test('ExecutionPlanner includes summarized and recent session context in planner input', async () => {
+  let plannerInput = null;
+
+  const planner = new ExecutionPlanner({
+    model: 'gpt-4.1-mini',
+    runImpl: async (_agent, input) => {
+      plannerInput = input;
+      return {
+        finalOutput: JSON.stringify({
+          action: 'answer_directly',
+          reason: 'Need only an informational answer.',
+          response_outline: 'Answer from the provided context.',
+          task_title: null,
+          working_directory: null,
+          execution: null,
+        }),
+      };
+    },
+  });
+
+  await planner.plan({
+    chatId: '123',
+    messageText: 'What should we do next?',
+    workspaceRoot: 'C:/Users/joshs/Projects',
+    projectRoot: 'C:/Users/joshs/Projects/soup_ai',
+    session: {
+      getSnapshot: async () => ({
+        summaryText: 'User prefers concise replies.',
+        items: [
+          { role: 'user', content: [{ type: 'input_text', text: 'Earlier question' }] },
+          { role: 'assistant', content: [{ type: 'output_text', text: 'Earlier answer' }] },
+        ],
+      }),
+    },
+  });
+
+  assert.match(plannerInput, /Session summary:\nUser prefers concise replies\./);
+  assert.match(plannerInput, /Recent conversation:\nuser: Earlier question\nassistant: Earlier answer/);
+});

@@ -183,6 +183,13 @@ test('MessageProcessor still uses the supervisor agent for informational request
     assert.equal(agentCalls, 1);
     assert.equal(codexCalls, 0);
     assert.deepEqual(outbound, ['Informational answer']);
+
+    const sessionState = db.getAgentSessionState('chat-2');
+    assert.equal(sessionState.items.length, 2);
+    assert.equal(sessionState.items[0].role, 'user');
+    assert.equal(sessionState.items[0].content[0].text, 'What can GitHub CLI show me about contributions?');
+    assert.equal(sessionState.items[1].role, 'assistant');
+    assert.equal(sessionState.items[1].content[0].text, 'Informational answer');
   } finally {
     db.close();
   }
