@@ -1,6 +1,26 @@
 import { splitTelegramText, truncateText } from '../utils/text.js';
 import { SqliteSession } from '../openai/sqlite-session.js';
 
+function createSessionTextItem(role, text, partType) {
+  const normalizedText = `${text ?? ''}`.trim();
+
+  if (!normalizedText) {
+    return null;
+  }
+
+  return {
+    role,
+    content: [{ type: partType, text: normalizedText }],
+  };
+}
+
+function buildCodexSessionItems({ userMessage, assistantReply }) {
+  return [
+    createSessionTextItem('user', userMessage, 'input_text'),
+    createSessionTextItem('assistant', assistantReply, 'output_text'),
+  ].filter(Boolean);
+}
+
 function formatTaskList(tasks) {
   if (tasks.length === 0) {
     return 'No tracked tasks yet.';
@@ -405,6 +425,13 @@ export class MessageProcessor {
           user_summary: userSummary,
         }),
       });
+
+      await session.addItems(
+        buildCodexSessionItems({
+          userMessage: text,
+          assistantReply: userSummary || codexResult.summary,
+        }),
+      );
     } else {
       const replyText =
         typeof this.agent.answerDirectly === 'function'

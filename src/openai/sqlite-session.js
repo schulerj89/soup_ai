@@ -48,7 +48,8 @@ export class SqliteSession {
   }
 
   async getItems(limit) {
-    const items = this.buildSessionItems(this.readState());
+    const state = this.readState();
+    const items = this.buildSessionItems(state);
 
     if (limit == null) {
       return items;
@@ -58,7 +59,13 @@ export class SqliteSession {
       return [];
     }
 
-    return items.slice(Math.max(items.length - limit, 0));
+    const recentItems = state.items.slice(Math.max(state.items.length - limit, 0)).map((item) => structuredClone(item));
+
+    if (!state.summaryText) {
+      return recentItems;
+    }
+
+    return [system(`${SUMMARY_PREFIX}${state.summaryText}`), ...recentItems];
   }
 
   async addItems(items) {

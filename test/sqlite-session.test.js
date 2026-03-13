@@ -65,3 +65,26 @@ test('SqliteSession includes a summary item ahead of recent items', async () => 
     db.close();
   }
 });
+
+test('SqliteSession preserves the summary item when limiting recent items', async () => {
+  const db = new AppDb({ dbPath: ':memory:' });
+
+  try {
+    const session = new SqliteSession({ db, chatId: 'chat-4', maxItems: 10 });
+    await session.compact({
+      summaryText: 'Important durable context.',
+      items: [
+        { role: 'user', content: [{ type: 'input_text', text: 'older recent' }] },
+        { role: 'assistant', content: [{ type: 'output_text', text: 'latest recent' }] },
+      ],
+    });
+
+    const items = await session.getItems(1);
+    assert.equal(items.length, 2);
+    assert.equal(items[0].role, 'system');
+    assert.match(items[0].content, /Important durable context/);
+    assert.equal(items[1].content[0].text, 'latest recent');
+  } finally {
+    db.close();
+  }
+});

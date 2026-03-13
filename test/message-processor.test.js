@@ -101,6 +101,16 @@ test('MessageProcessor lets the supervisor agent choose Codex tool usage', async
     assert.match(codexInput.prompt, /Target paths:\n- src\/example\.js/);
     assert.match(codexInput.prompt, /Verification:\n- npm test/);
     assert.deepEqual(outbound, ["Got it. I'll start that now.", 'Changed files and ran tests.']);
+
+    const sessionState = db.getAgentSessionState('chat-1');
+    assert.equal(sessionState.items.length, 2);
+    assert.equal(sessionState.items[0].role, 'user');
+    assert.equal(
+      sessionState.items[0].content[0].text,
+      'Please update the repo, run tests, commit, and push the changes.',
+    );
+    assert.equal(sessionState.items[1].role, 'assistant');
+    assert.equal(sessionState.items[1].content[0].text, 'Changed files and ran tests.');
   } finally {
     db.close();
   }
