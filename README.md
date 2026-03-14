@@ -1,109 +1,75 @@
 # Soup AI
 
-`Soup AI` is a local-only Telegram supervisor for Windows. It polls a private Telegram bot on a schedule, stores inbound and outbound messages in SQLite, routes work through the OpenAI Agents SDK, and can hand off local tasks to `codex exec --dangerously-bypass-approvals-and-sandbox`.
+`Soup AI` is a local-only Telegram supervisor for Windows. It polls a private Telegram bot, stores state in SQLite, answers simple requests through the OpenAI Agents SDK, and hands repo or machine work to `codex exec` inside one allowed workspace root.
 
-## What it does
+## Current behavior
 
-- Polls Telegram updates with a scheduled Windows task.
-- Transcribes Telegram voice notes and audio attachments through OpenAI speech-to-text before routing them to the supervisor.
-- Persists messages, queue state, leases, and tracked tasks in SQLite.
-- Uses the OpenAI Agents SDK as the supervisor brain.
-- Gives the supervisor built-in OpenAI web search for current external questions.
-- Lets the model invoke a guarded local Codex tool inside one allowed workspace root.
-- Exposes Codex status and recent limits telemetry from the local Codex install.
-- Queues outbound Telegram replies so sends can be retried on the next scheduled run.
+- Runs as a scheduled local worker, typically once per minute through Windows Task Scheduler
+- Accepts Telegram text, voice notes, and audio attachments
+- Transcribes audio with OpenAI before processing
+- Stores messages, jobs, outbound replies, leases, tasks, and chat memory in SQLite
+- Uses an execution planner to either answer directly or run Codex locally
+- Keeps direct replies concise and can use OpenAI web search for current questions
+- Summarizes long chat history into compact session memory
+- Queues outbound Telegram messages for retry on the next run
 
-## Architecture
+## Main pieces
 
-- `src/cli/setup.js`: interactive bootstrap for `.env` and DB creation.
-- `src/cli/supervisor-once.js`: one scheduler tick.
-- `src/services/supervisor-service.js`: poll, ingest, process queue, flush outbound messages.
-- `src/openai/supervisor-agent.js`: Tosh the AI Bot, implemented with the OpenAI Agents SDK.
-- `src/tools/codex-runner.js`: executes Codex with the required dangerous bypass flag and reads local Codex status data.
-- `src/db/app-db.js`: SQLite schema and repository methods.
-- `scripts/run-supervisor.cmd`: Windows scheduler entrypoint.
-- `scripts/register-task.ps1`: registers a Task Scheduler job that runs every minute.
+- `src/cli/setup.js`: interactive `.env` setup and DB initialization
+- `src/cli/supervisor-once.js`: one supervisor tick
+- `src/services/supervisor-service.js`: ingest, process, and flush loop
+- `src/openai/execution-planner.js`: decides direct reply vs. Codex execution
+- `src/openai/supervisor-agent.js`: direct answers, Codex acknowledgements, and result summaries
+- `src/tools/codex-runner.js`: guarded `codex exec` wrapper plus local Codex status inspection
+- `src/db/app-db.js`: SQLite schema and persistence
 
 ## Requirements
 
 - Windows with Task Scheduler
 - Node.js `25+`
-- `codex` CLI available on `PATH`
-- A Telegram bot token
-- An OpenAI API key
+- `codex` on `PATH`
+- Telegram bot token
+- OpenAI API key
 
 ## Setup
 
-1. Install dependencies:
-
 ```powershell
 npm install
-```
-
-2. Run the interactive setup:
-
-```powershell
 npm run setup
-```
-
-3. Read the operator checklist in [docs/telegram.md](./docs/telegram.md) and supply the required values.
-
-4. Run one manual cycle:
-
-```powershell
 npm run supervisor:once
-```
-
-5. Register the Windows scheduled task:
-
-```powershell
 npm run task:register
 ```
+
+`npm run setup` writes `.env`, initializes the SQLite DB, and prompts for the workspace root, Telegram allowlist, and model settings. See [docs/telegram.md](./docs/telegram.md) if you still need the bot token or chat ID workflow.
 
 ## Useful commands
 
 ```powershell
 npm run discover:telegram
+npm run inspect:codex
 npm run send:message -- --text "Manual outbound test"
 npm run supervisor:once
+npm run task:register
+npm run task:unregister
 npm test
 ```
 
 ## Telegram commands
 
-- `/help`: show supported commands
-- `/health`: show queue and task counts
-- `/tasks`: show recent Codex-tracked tasks
+- `/help`
+- `/health`
+- `/status`
+- `/tasks`
 
-Any other text is treated as a supervisor request. The model may answer directly or invoke Codex for local work.
-Telegram voice notes and audio files are transcribed first, then handled as normal inbound messages.
+Anything else is treated as a supervisor request. Soup AI either replies directly or starts a Codex task and posts a follow-up summary when it finishes.
 
-The agent also has internal tools for:
+## Configuration notes
 
-- web search for current information
-- recent task history
-- supervisor queue snapshot
-- Codex status and recent rate-limit telemetry
+- `SUPERVISOR_WORKSPACE_ROOT` is the hard boundary for local Codex work
+- `CODEX_ENABLE_SEARCH=true` enables Codex web search during local runs
+- `TELEGRAM_ALLOWED_CHAT_IDS` should contain only private chat IDs you trust
+- `.env` is local and gitignored
 
-## Security notes
+## Security
 
-- Codex runs with `--dangerously-bypass-approvals-and-sandbox` because that was an explicit requirement. Treat this bot as equivalent to giving Telegram-triggered shell authority to your local account.
-- `SUPERVISOR_WORKSPACE_ROOT` is enforced. Codex requests outside that root are rejected.
-- Set `TELEGRAM_ALLOWED_CHAT_IDS` to your private chat IDs only.
-- `.env` is gitignored. Keep it local.
-
-## SQLite choice
-
-This project uses Node's built-in `node:sqlite` because the current machine is on Node `25.3.0`, and common native SQLite packages are not yet a reliable fit there. On Node 25 the module still emits an experimental warning, so the scheduler wrapper suppresses warnings for cleaner scheduled runs.
-
-For Codex limits/status, the CLI's `/status` command is interactive-only. This project derives a scriptable equivalent from `~/.codex/config.toml` plus the latest local Codex session telemetry when available.
-
-## Testing
-
-Run:
-
-```powershell
-npm test
-```
-
-The tests cover the DB queue logic, the Tosh agent wiring, the Codex status parser, and a scheduler tick with mocked Telegram/Codex behavior.
+Codex runs with `--dangerously-bypass-approvals-and-sandbox`. In practice, this bot can execute local work as your user account inside the configured workspace root. Treat the Telegram bot as privileged local access.
