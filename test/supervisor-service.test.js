@@ -157,6 +157,160 @@ test('SupervisorService heartbeat renews the lease during long work', async () =
   }
 });
 
+test('SupervisorService fails abandoned running jobs and tasks after acquiring the lease', async () => {
+  const db = createTestDb();
+
+  try {
+    const message = db.insertInboundMessage({
+      updateId: 9001,
+      telegramMessageId: 42,
+      chatId: '123',
+      replyToMessageId: null,
+      text: 'Resume the abandoned run',
+      status: 'received',
+      metadata: {},
+      raw: {},
+    });
+    const job = db.queueJob({
+      jobType: 'process_inbound_message',
+      messageId: message.id,
+      payload: { chatId: '123', telegramMessageId: 42 },
+    });
+    db.markJobRunning(job.id);
+    const task = db.createTask({
+      sourceJobId: job.id,
+      sourceMessageId: message.id,
+      title: 'Abandoned task',
+      details: 'stale task',
+      codexCommand: 'codex exec',
+    });
+
+    const service = new SupervisorService({
+      db,
+      telegramClient: {
+        getUpdates: async () => [],
+        sendMessage: async () => ({ message_id: 1 }),
+      },
+      agent: {
+        answerDirectly: async () => 'unused',
+      },
+      executionPlanner: {
+        plan: async () => ({
+          action: 'answer_directly',
+          reason: 'Recovery-only test route.',
+          responseOutline: 'unused',
+          taskTitle: null,
+          executionPlan: null,
+          workingDirectory: null,
+        }),
+      },
+      codexRunner: {
+        run: async () => ({ exitCode: 0, stdout: '', stderr: '', timedOut: false }),
+      },
+      config: createTestConfig(),
+      logger: createSilentLogger(),
+    });
+
+    const summary = await service.runOnce();
+    const recoveredJob = db.db.prepare('SELECT * FROM jobs WHERE id = ?').get(job.id);
+    const recoveredTask = db.db.prepare('SELECT * FROM tasks WHERE id = ?').get(task.id);
+
+    assert.equal(summary.skipped, false);
+    assert.deepEqual(summary.recovered, { failedJobs: 1, failedTasks: 1 });
+    assert.equal(recoveredJob.status, 'failed');
+    assert.match(recoveredJob.last_error, /Recovered abandoned supervisor work/);
+    assert.equal(recoveredTask.status, 'failed');
+    assert.match(recoveredTask.result_summary, /Recovered abandoned supervisor work/);
+    assert.equal(recoveredTask.codex_exit_code, -1);
+  } finally {
+    db.close();
+  }
+});
+
+test('SupervisorService kills an abandoned tracked Codex process before failing stale work', async () => {
+  const db = createTestDb();
+  const killedPids = [];
+
+  try {
+    const message = db.insertInboundMessage({
+      updateId: 9002,
+      telegramMessageId: 43,
+      chatId: '123',
+      replyToMessageId: null,
+      text: 'Recover the tracked orphan',
+      status: 'received',
+      metadata: {},
+      raw: {},
+    });
+    const job = db.queueJob({
+      jobType: 'process_inbound_message',
+      messageId: message.id,
+      payload: { chatId: '123', telegramMessageId: 43 },
+    });
+    db.markJobRunning(job.id);
+    const task = db.createTask({
+      sourceJobId: job.id,
+      sourceMessageId: message.id,
+      title: 'Tracked orphan task',
+      details: 'stale task',
+      codexCommand: 'codex exec',
+    });
+    db.setActiveCodexRun({
+      pid: 4321,
+      taskId: task.id,
+      sourceJobId: job.id,
+      sourceMessageId: message.id,
+      taskTitle: task.title,
+      workingDirectory: 'C:/Users/joshs/Projects/soup_ai',
+      startedAt: db.now(),
+    });
+
+    const service = new SupervisorService({
+      db,
+      telegramClient: {
+        getUpdates: async () => [],
+        sendMessage: async () => ({ message_id: 1 }),
+      },
+      agent: {
+        answerDirectly: async () => 'unused',
+      },
+      executionPlanner: {
+        plan: async () => ({
+          action: 'answer_directly',
+          reason: 'Recovery-only test route.',
+          responseOutline: 'unused',
+          taskTitle: null,
+          executionPlan: null,
+          workingDirectory: null,
+        }),
+      },
+      codexRunner: {
+        run: async () => ({ exitCode: 0, stdout: '', stderr: '', timedOut: false }),
+        killProcessTree: async (pid) => {
+          killedPids.push(pid);
+          return true;
+        },
+      },
+      config: createTestConfig(),
+      logger: createSilentLogger(),
+    });
+
+    const summary = await service.runOnce();
+
+    assert.equal(summary.skipped, false);
+    assert.deepEqual(killedPids, [4321]);
+    assert.deepEqual(summary.recoveredProcess, {
+      found: true,
+      killed: true,
+      pid: 4321,
+      taskId: task.id,
+    });
+    assert.equal(db.getActiveCodexRun(), null);
+  } finally {
+    db.close();
+  }
+});
+
 test('SupervisorService transcribes Telegram voice messages before processing them', async () => {
   const db = createTestDb();
   const sent = [];

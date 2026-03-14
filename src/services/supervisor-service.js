@@ -26,6 +26,7 @@ export class SupervisorService {
     this.config = config;
     this.logger = logger;
     this.timers = timers;
+    this.codexRunner = codexRunner;
     this.immediateSentMessages = 0;
     this.messageProcessor = new MessageProcessor({
       db,
@@ -90,6 +91,36 @@ export class SupervisorService {
     return Math.max(1000, Math.floor(leaseTtlMs / 3));
   }
 
+  async recoverAbandonedCodexProcess() {
+    const activeRun = this.db.getActiveCodexRun();
+
+    if (!activeRun?.pid) {
+      return { found: false, killed: false };
+    }
+
+    let killed = false;
+
+    try {
+      killed = await this.codexRunner.killProcessTree(activeRun.pid);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : `${error}`;
+      this.logger.error(`Failed to terminate abandoned Codex process ${activeRun.pid}: ${message}`);
+    } finally {
+      this.db.clearActiveCodexRun();
+    }
+
+    if (killed) {
+      this.logger.error(`Terminated abandoned Codex process tree for PID ${activeRun.pid}.`);
+    }
+
+    return {
+      found: true,
+      killed,
+      pid: activeRun.pid,
+      taskId: activeRun.taskId ?? null,
+    };
+  }
+
   async runOnce() {
     const owner = crypto.randomUUID();
     const leaseTtlMs = this.computeLeaseTtlMs();
@@ -99,6 +130,17 @@ export class SupervisorService {
     if (!acquired) {
       this.logger.log('Another Soup AI run is still active. Skipping this tick.');
       return { skipped: true };
+    }
+
+    const recoveredProcess = await this.recoverAbandonedCodexProcess();
+    const abandonedReason =
+      'Recovered abandoned supervisor work after a previous run lost its lease before completing.';
+    const recovered = this.db.failRunningWork(abandonedReason);
+
+    if (recovered.failedJobs > 0 || recovered.failedTasks > 0) {
+      this.logger.error(
+        `Recovered abandoned work: ${recovered.failedJobs} job(s), ${recovered.failedTasks} task(s).`,
+      );
     }
 
     const heartbeat = this.timers.setInterval(() => {
@@ -124,6 +166,8 @@ export class SupervisorService {
 
       return {
         skipped: false,
+        recoveredProcess,
+        recovered,
         updatesReceived: updates.length,
         insertedMessages: ingested.inserted,
         processedJobs,

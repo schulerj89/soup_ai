@@ -3,6 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { EventEmitter } from 'node:events';
 import { CodexRunner, parseCodexStructuredReport } from '../src/tools/codex-runner.js';
 
 test('CodexRunner reads config and recent rate-limit telemetry', async () => {
@@ -179,6 +180,65 @@ test('CodexRunner places top-level search before exec and model after exec', () 
     '--skip-git-repo-check',
     'test prompt',
   ]);
+});
+
+test('CodexRunner terminates the full process tree when a Windows codex command times out', async () => {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'soup-ai-codex-timeout-'));
+  const workspaceRoot = tempRoot;
+  const workingDirectory = path.join(tempRoot, 'workspace');
+  fs.mkdirSync(workingDirectory, { recursive: true });
+
+  const child = new EventEmitter();
+  child.pid = 4321;
+  child.stdout = new EventEmitter();
+  child.stderr = new EventEmitter();
+  child.kill = () => {
+    throw new Error('child.kill should not be used for Windows tree termination');
+  };
+
+  let terminatedPid = null;
+  let spawnCalls = 0;
+  const lifecycle = [];
+
+  const runner = new CodexRunner({
+    codexBin: 'C:\\Users\\joshs\\AppData\\Roaming\\npm\\codex.cmd',
+    workspaceRoot,
+    codexModel: null,
+    codexEnableSearch: false,
+    timeoutMs: 5,
+    codexHome: tempRoot,
+    spawnImpl: () => {
+      spawnCalls += 1;
+      return child;
+    },
+    killProcessTreeImpl: async (pid) => {
+      terminatedPid = pid;
+      setImmediate(() => {
+        child.emit('close', null, 'SIGTERM');
+      });
+    },
+  });
+
+  const originalPlatform = process.platform;
+  Object.defineProperty(process, 'platform', { value: 'win32' });
+
+  try {
+    const result = await runner.run({
+      prompt: 'Timeout test',
+      workingDirectory,
+      onSpawn: ({ pid }) => lifecycle.push(`spawn:${pid}`),
+      onExit: ({ pid, timedOut }) => lifecycle.push(`exit:${pid}:${timedOut}`),
+    });
+
+    assert.equal(spawnCalls, 1);
+    assert.equal(terminatedPid, 4321);
+    assert.deepEqual(lifecycle, ['spawn:4321', 'exit:4321:true']);
+    assert.equal(result.timedOut, true);
+    assert.equal(result.exitCode, -1);
+    assert.equal(result.signal, 'SIGTERM');
+  } finally {
+    Object.defineProperty(process, 'platform', { value: originalPlatform });
+  }
 });
 
 test('parseCodexStructuredReport accepts a marker-delimited JSON ending', () => {

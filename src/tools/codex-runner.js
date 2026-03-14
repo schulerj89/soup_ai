@@ -243,13 +243,24 @@ function hasMeaningfulStructuredWork(report) {
 }
 
 export class CodexRunner {
-  constructor({ codexBin, workspaceRoot, codexModel, codexEnableSearch, timeoutMs, codexHome }) {
+  constructor({
+    codexBin,
+    workspaceRoot,
+    codexModel,
+    codexEnableSearch,
+    timeoutMs,
+    codexHome,
+    spawnImpl = spawn,
+    killProcessTreeImpl = null,
+  }) {
     this.codexBin = codexBin;
     this.workspaceRoot = path.resolve(workspaceRoot);
     this.codexModel = codexModel;
     this.codexEnableSearch = codexEnableSearch;
     this.timeoutMs = timeoutMs;
     this.codexHome = codexHome ?? path.join(os.homedir(), '.codex');
+    this.spawnImpl = spawnImpl;
+    this.killProcessTreeImpl = killProcessTreeImpl;
   }
 
   assertAllowedDirectory(targetDirectory) {
@@ -429,7 +440,53 @@ export class CodexRunner {
     };
   }
 
-  async run({ prompt, workingDirectory }) {
+  async killProcessTree(pid) {
+    if (!pid) {
+      return false;
+    }
+
+    if (this.killProcessTreeImpl) {
+      await this.killProcessTreeImpl(pid);
+      return true;
+    }
+
+    if (process.platform === 'win32') {
+      let found = true;
+
+      await new Promise((resolve, reject) => {
+        const killer = spawn('taskkill', ['/pid', `${pid}`, '/T', '/F'], {
+          windowsHide: true,
+        });
+
+        let stderr = '';
+        killer.stderr?.on('data', (chunk) => {
+          stderr += chunk.toString();
+        });
+        killer.on('error', reject);
+        killer.on('close', () => {
+          if (/not found|no running instance|cannot find the process/i.test(stderr)) {
+            found = false;
+          }
+          resolve();
+        });
+      });
+
+      return found;
+    }
+
+    try {
+      process.kill(pid, 'SIGTERM');
+      return true;
+    } catch (error) {
+      if (error && typeof error === 'object' && error.code === 'ESRCH') {
+        return false;
+      }
+
+      throw error;
+    }
+  }
+
+  async run({ prompt, workingDirectory, onSpawn = null, onExit = null }) {
     const safeDirectory = this.assertAllowedDirectory(workingDirectory);
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'soup-ai-codex-'));
     const outputSchemaPath = path.join(tempDir, `codex-schema-${randomUUID()}.json`);
@@ -440,7 +497,7 @@ export class CodexRunner {
       const spawnSpec = this.buildSpawnSpec(args);
 
       return new Promise((resolve, reject) => {
-        const child = spawn(spawnSpec.command, spawnSpec.args, {
+        const child = this.spawnImpl(spawnSpec.command, spawnSpec.args, {
           cwd: safeDirectory,
           shell: spawnSpec.shell,
           windowsHide: true,
@@ -450,10 +507,27 @@ export class CodexRunner {
         let stderr = '';
         let settled = false;
         let timedOut = false;
+        let finalized = false;
+
+        const finalizeExit = async () => {
+          if (finalized) {
+            return;
+          }
+
+          finalized = true;
+
+          if (onExit) {
+            await onExit({ pid: child.pid, timedOut });
+          }
+        };
+
+        if (onSpawn) {
+          Promise.resolve(onSpawn({ pid: child.pid })).catch(() => {});
+        }
 
         const timeout = setTimeout(() => {
           timedOut = true;
-          child.kill();
+          void this.killProcessTree(child.pid).catch(() => {});
         }, this.timeoutMs);
 
         child.stdout.on('data', (chunk) => {
@@ -471,7 +545,7 @@ export class CodexRunner {
 
           settled = true;
           clearTimeout(timeout);
-          reject(error);
+          void finalizeExit().finally(() => reject(error));
         });
 
         child.on('close', (exitCode, signal) => {
@@ -481,16 +555,17 @@ export class CodexRunner {
 
           settled = true;
           clearTimeout(timeout);
-
-          resolve({
-            command: [spawnSpec.command, ...spawnSpec.args].join(' '),
-            workingDirectory: safeDirectory,
-            stdout,
-            stderr,
-            exitCode: exitCode ?? (timedOut ? -1 : null),
-            signal,
-            timedOut,
-          });
+          void finalizeExit().finally(() =>
+            resolve({
+              command: [spawnSpec.command, ...spawnSpec.args].join(' '),
+              workingDirectory: safeDirectory,
+              stdout,
+              stderr,
+              exitCode: exitCode ?? (timedOut ? -1 : null),
+              signal,
+              timedOut,
+            }),
+          );
         });
       });
     };

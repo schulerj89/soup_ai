@@ -201,6 +201,46 @@ export class AppDb {
     this.db.prepare('DELETE FROM leases WHERE key = ? AND owner = ?').run(key, owner);
   }
 
+  getActiveCodexRun() {
+    return this.getState('active_codex_run', null);
+  }
+
+  setActiveCodexRun(value) {
+    this.setState('active_codex_run', value);
+  }
+
+  clearActiveCodexRun() {
+    this.db.prepare('DELETE FROM app_state WHERE key = ?').run('active_codex_run');
+  }
+
+  failRunningWork(reason) {
+    const now = this.now();
+    const taskResult = this.db
+      .prepare(
+        `UPDATE tasks
+         SET status = 'failed',
+             result_summary = ?,
+             codex_exit_code = COALESCE(codex_exit_code, -1),
+             completed_at = ?
+         WHERE status = 'running'`,
+      )
+      .run(reason, now);
+    const jobResult = this.db
+      .prepare(
+        `UPDATE jobs
+         SET status = 'failed',
+             last_error = ?,
+             updated_at = ?
+         WHERE status = 'running'`,
+      )
+      .run(reason, now);
+
+    return {
+      failedTasks: taskResult.changes,
+      failedJobs: jobResult.changes,
+    };
+  }
+
   insertInboundMessage({
     updateId,
     telegramMessageId,

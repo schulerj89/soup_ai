@@ -49,7 +49,24 @@ export class CodexTaskRunner {
     });
 
     try {
-      const result = await this.codexRunner.run({ prompt, workingDirectory });
+      const result = await this.codexRunner.run({
+        prompt,
+        workingDirectory,
+        onSpawn: ({ pid }) => {
+          this.db.setActiveCodexRun({
+            pid,
+            taskId: task.id,
+            sourceJobId,
+            sourceMessageId,
+            taskTitle,
+            workingDirectory,
+            startedAt: this.db.now(),
+          });
+        },
+        onExit: () => {
+          this.db.clearActiveCodexRun();
+        },
+      });
       const structuredReport = result.structuredReport ?? null;
       const resultStatus = classifyCodexResult(result);
       const summary = this.summarizeResult(result, resultStatus, structuredReport);
