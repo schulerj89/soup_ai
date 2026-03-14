@@ -2,28 +2,15 @@ import fs from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { AppDb } from '../src/db/app-db.js';
 import { SupervisorService } from '../src/services/supervisor-service.js';
+import { createSilentLogger, createTestConfig, createTestDb } from '../support/unit-helpers.js';
 
 const fixturePath = path.join(process.cwd(), 'test', 'fixtures', 'sample-telegram-updates.json');
 const updates = JSON.parse(fs.readFileSync(fixturePath, 'utf8'));
 
 test('SupervisorService ingests updates, processes jobs, and flushes outbound replies', async () => {
-  const db = new AppDb({ dbPath: ':memory:' });
+  const db = createTestDb();
   const sent = [];
-
-  const config = {
-    telegramAllowedChatIds: ['999111'],
-    telegramPollLimit: 25,
-    telegramPollTimeoutSeconds: 0,
-    maxJobsPerRun: 5,
-    codexTimeoutMs: 5000,
-    workspaceRoot: 'C:/Users/joshs/Projects',
-    projectRoot: 'C:/Users/joshs/Projects/soup_ai',
-    codexBin: 'codex',
-    codexMaxOutputChars: 2000,
-    telegramAudioMaxFileBytes: 24 * 1024 * 1024,
-  };
 
   const telegramClient = {
     getUpdates: async () => updates,
@@ -59,14 +46,14 @@ test('SupervisorService ingests updates, processes jobs, and flushes outbound re
   };
 
   const service = new SupervisorService({
-      db,
-      telegramClient,
-      agent,
-      executionPlanner,
-      codexRunner,
-      config,
-      memorySummarizer,
-    logger: { log() {}, error() {} },
+    db,
+    telegramClient,
+    agent,
+    executionPlanner,
+    codexRunner,
+    config: createTestConfig(),
+    memorySummarizer,
+    logger: createSilentLogger(),
   });
 
   try {
@@ -84,7 +71,7 @@ test('SupervisorService ingests updates, processes jobs, and flushes outbound re
 });
 
 test('SupervisorService skips when another active lease is present', async () => {
-  const db = new AppDb({ dbPath: ':memory:' });
+  const db = createTestDb();
 
   try {
     db.acquireLease('supervisor_once', 'other-owner', 60_000);
@@ -112,18 +99,8 @@ test('SupervisorService skips when another active lease is present', async () =>
       codexRunner: {
         run: async () => ({ exitCode: 0, stdout: '', stderr: '', timedOut: false }),
       },
-      config: {
-        telegramAllowedChatIds: ['999111'],
-        telegramPollLimit: 25,
-        telegramPollTimeoutSeconds: 0,
-        maxJobsPerRun: 5,
-        codexTimeoutMs: 5000,
-        workspaceRoot: 'C:/Users/joshs/Projects',
-        codexBin: 'codex',
-        codexMaxOutputChars: 2000,
-        telegramAudioMaxFileBytes: 24 * 1024 * 1024,
-      },
-      logger: { log() {}, error() {} },
+      config: createTestConfig(),
+      logger: createSilentLogger(),
     });
 
     const summary = await service.runOnce();
@@ -134,23 +111,9 @@ test('SupervisorService skips when another active lease is present', async () =>
 });
 
 test('SupervisorService heartbeat renews the lease during long work', async () => {
-  const db = new AppDb({ dbPath: ':memory:' });
+  const db = createTestDb();
 
   try {
-    const config = {
-      telegramAllowedChatIds: ['999111'],
-      telegramPollLimit: 25,
-      telegramPollTimeoutSeconds: 0,
-      maxJobsPerRun: 5,
-      codexTimeoutMs: 5000,
-      supervisorLeaseTtlMs: 80,
-      supervisorLeaseHeartbeatMs: 20,
-      workspaceRoot: 'C:/Users/joshs/Projects',
-      codexBin: 'codex',
-      codexMaxOutputChars: 2000,
-      telegramAudioMaxFileBytes: 24 * 1024 * 1024,
-    };
-
     const service = new SupervisorService({
       db,
       telegramClient: {
@@ -176,8 +139,11 @@ test('SupervisorService heartbeat renews the lease during long work', async () =
       codexRunner: {
         run: async () => ({ exitCode: 0, stdout: '', stderr: '', timedOut: false }),
       },
-      config,
-      logger: { log() {}, error() {} },
+      config: createTestConfig({
+        supervisorLeaseTtlMs: 80,
+        supervisorLeaseHeartbeatMs: 20,
+      }),
+      logger: createSilentLogger(),
     });
 
     const before = Date.now();
@@ -192,7 +158,7 @@ test('SupervisorService heartbeat renews the lease during long work', async () =
 });
 
 test('SupervisorService transcribes Telegram voice messages before processing them', async () => {
-  const db = new AppDb({ dbPath: ':memory:' });
+  const db = createTestDb();
   const sent = [];
   const voiceUpdates = [
     {
@@ -257,19 +223,8 @@ test('SupervisorService transcribes Telegram voice messages before processing th
     codexRunner: {
       run: async () => ({ exitCode: 0, stdout: '', stderr: '', timedOut: false }),
     },
-    config: {
-      telegramAllowedChatIds: ['999111'],
-      telegramPollLimit: 25,
-      telegramPollTimeoutSeconds: 0,
-      maxJobsPerRun: 5,
-      codexTimeoutMs: 5000,
-      workspaceRoot: 'C:/Users/joshs/Projects',
-      projectRoot: 'C:/Users/joshs/Projects/soup_ai',
-      codexBin: 'codex',
-      codexMaxOutputChars: 2000,
-      telegramAudioMaxFileBytes: 24 * 1024 * 1024,
-    },
-    logger: { log() {}, error() {} },
+    config: createTestConfig(),
+    logger: createSilentLogger(),
   });
 
   try {
@@ -291,7 +246,7 @@ test('SupervisorService transcribes Telegram voice messages before processing th
 });
 
 test('AppDb renewLease extends lease expiration for the current owner', async () => {
-  const db = new AppDb({ dbPath: ':memory:' });
+  const db = createTestDb();
 
   try {
     assert.equal(db.acquireLease('lease-key', 'owner-a', 20), true);

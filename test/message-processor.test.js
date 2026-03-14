@@ -1,38 +1,22 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { AppDb } from '../src/db/app-db.js';
 import { MessageProcessor } from '../src/services/message-processor.js';
+import { createTestConfig, createTestDb, listOutboundMessages, queueInboundJob } from '../support/unit-helpers.js';
 
-function buildConfig() {
-  return {
-    workspaceRoot: 'C:/Users/joshs/Projects',
-    projectRoot: 'C:/Users/joshs/Projects/soup_ai',
-    codexBin: 'codex',
-    codexMaxOutputChars: 4000,
-  };
-}
+const config = createTestConfig({ codexMaxOutputChars: 4000 });
 
 test('MessageProcessor lets the supervisor agent choose Codex tool usage', async () => {
-  const db = new AppDb({ dbPath: ':memory:' });
+  const db = createTestDb();
 
   try {
-    const inbound = db.insertInboundMessage({
+    const { job } = queueInboundJob(db, {
       updateId: 1,
       telegramMessageId: 11,
       chatId: 'chat-1',
-      replyToMessageId: null,
       text: 'Please update the repo, run tests, commit, and push the changes.',
-      status: 'received',
-      raw: {},
-    });
-    const job = db.queueJob({
-      jobType: 'process_inbound_message',
-      messageId: inbound.id,
-      payload: {},
     });
 
     let codexInput = null;
-    let agentCalls = 0;
 
     const processor = new MessageProcessor({
       db,
@@ -85,15 +69,12 @@ test('MessageProcessor lets the supervisor agent choose Codex tool usage', async
         },
         getStatus: async () => ({ ok: true }),
       },
-      config: buildConfig(),
+      config,
     });
 
     await processor.processJob(job);
 
-    const outbound = db
-      .db.prepare("SELECT message_text FROM messages WHERE direction = 'outbound' ORDER BY id ASC")
-      .all()
-      .map((row) => row.message_text);
+    const outbound = listOutboundMessages(db);
 
     assert.equal(codexInput.workingDirectory, 'C:/Users/joshs/Projects/soup_ai');
     assert.match(codexInput.prompt, /Task: Apply repo update/);
@@ -117,22 +98,14 @@ test('MessageProcessor lets the supervisor agent choose Codex tool usage', async
 });
 
 test('MessageProcessor still uses the supervisor agent for informational requests', async () => {
-  const db = new AppDb({ dbPath: ':memory:' });
+  const db = createTestDb();
 
   try {
-    const inbound = db.insertInboundMessage({
+    const { job } = queueInboundJob(db, {
       updateId: 2,
       telegramMessageId: 12,
       chatId: 'chat-2',
-      replyToMessageId: null,
       text: 'What can GitHub CLI show me about contributions?',
-      status: 'received',
-      raw: {},
-    });
-    const job = db.queueJob({
-      jobType: 'process_inbound_message',
-      messageId: inbound.id,
-      payload: {},
     });
 
     let agentCalls = 0;
@@ -170,15 +143,12 @@ test('MessageProcessor still uses the supervisor agent for informational request
         },
         getStatus: async () => ({ ok: true }),
       },
-      config: buildConfig(),
+      config,
     });
 
     await processor.processJob(job);
 
-    const outbound = db
-      .db.prepare("SELECT message_text FROM messages WHERE direction = 'outbound' ORDER BY id ASC")
-      .all()
-      .map((row) => row.message_text);
+    const outbound = listOutboundMessages(db);
 
     assert.equal(agentCalls, 1);
     assert.equal(codexCalls, 0);
@@ -196,22 +166,14 @@ test('MessageProcessor still uses the supervisor agent for informational request
 });
 
 test('MessageProcessor reports acknowledgement-only Codex runs as incomplete when chosen by the agent', async () => {
-  const db = new AppDb({ dbPath: ':memory:' });
+  const db = createTestDb();
 
   try {
-    const inbound = db.insertInboundMessage({
+    const { job } = queueInboundJob(db, {
       updateId: 3,
       telegramMessageId: 13,
       chatId: 'chat-3',
-      replyToMessageId: null,
       text: 'Please update the repo.',
-      status: 'received',
-      raw: {},
-    });
-    const job = db.queueJob({
-      jobType: 'process_inbound_message',
-      messageId: inbound.id,
-      payload: {},
     });
 
     const processor = new MessageProcessor({
@@ -262,16 +224,13 @@ test('MessageProcessor reports acknowledgement-only Codex runs as incomplete whe
         }),
         getStatus: async () => ({ ok: true }),
       },
-      config: buildConfig(),
+      config,
     });
 
     await processor.processJob(job);
 
     const latestTask = db.listRecentTasks(1)[0];
-    const outbound = db
-      .db.prepare("SELECT message_text FROM messages WHERE direction = 'outbound' ORDER BY id ASC")
-      .all()
-      .map((row) => row.message_text);
+    const outbound = listOutboundMessages(db);
 
     assert.equal(latestTask.status, 'failed');
     assert.equal(outbound[1], 'Codex did not complete the requested work.');
@@ -281,22 +240,14 @@ test('MessageProcessor reports acknowledgement-only Codex runs as incomplete whe
 });
 
 test('MessageProcessor reports partial Codex runs when changes were made but the task was not completed', async () => {
-  const db = new AppDb({ dbPath: ':memory:' });
+  const db = createTestDb();
 
   try {
-    const inbound = db.insertInboundMessage({
+    const { job } = queueInboundJob(db, {
       updateId: 5,
       telegramMessageId: 15,
       chatId: 'chat-5',
-      replyToMessageId: null,
       text: 'Create the exact README file.',
-      status: 'received',
-      raw: {},
-    });
-    const job = db.queueJob({
-      jobType: 'process_inbound_message',
-      messageId: inbound.id,
-      payload: {},
     });
 
     const processor = new MessageProcessor({
@@ -342,17 +293,14 @@ test('MessageProcessor reports partial Codex runs when changes were made but the
           stderr: '',
         }),
       },
-      config: buildConfig(),
+      config,
     });
 
     await processor.processJob(job);
 
     const latestTask = db.listRecentTasks(1)[0];
     const toolRun = JSON.parse(db.db.prepare('SELECT output_json FROM tool_runs ORDER BY id DESC LIMIT 1').get().output_json);
-    const outbound = db
-      .db.prepare("SELECT message_text FROM messages WHERE direction = 'outbound' ORDER BY id ASC")
-      .all()
-      .map((row) => row.message_text);
+    const outbound = listOutboundMessages(db);
 
     assert.equal(latestTask.status, 'partial');
     assert.equal(latestTask.result_summary, 'Codex changed the repo but did not complete the requested work.');
@@ -365,22 +313,14 @@ test('MessageProcessor reports partial Codex runs when changes were made but the
 });
 
 test('MessageProcessor keeps follow-up-required Codex runs out of completed state', async () => {
-  const db = new AppDb({ dbPath: ':memory:' });
+  const db = createTestDb();
 
   try {
-    const inbound = db.insertInboundMessage({
+    const { job } = queueInboundJob(db, {
       updateId: 6,
       telegramMessageId: 16,
       chatId: 'chat-6',
-      replyToMessageId: null,
       text: 'Finish the migration.',
-      status: 'received',
-      raw: {},
-    });
-    const job = db.queueJob({
-      jobType: 'process_inbound_message',
-      messageId: inbound.id,
-      payload: {},
     });
 
     const processor = new MessageProcessor({
@@ -427,7 +367,7 @@ test('MessageProcessor keeps follow-up-required Codex runs out of completed stat
           stderr: '',
         }),
       },
-      config: buildConfig(),
+      config,
     });
 
     await processor.processJob(job);
@@ -444,22 +384,14 @@ test('MessageProcessor keeps follow-up-required Codex runs out of completed stat
 });
 
 test('MessageProcessor renders exact file contents explicitly for Codex', async () => {
-  const db = new AppDb({ dbPath: ':memory:' });
+  const db = createTestDb();
 
   try {
-    const inbound = db.insertInboundMessage({
+    const { job } = queueInboundJob(db, {
       updateId: 4,
       telegramMessageId: 14,
       chatId: 'chat-4',
-      replyToMessageId: null,
       text: 'Create a README with exact content.',
-      status: 'received',
-      raw: {},
-    });
-    const job = db.queueJob({
-      jobType: 'process_inbound_message',
-      messageId: inbound.id,
-      payload: {},
     });
 
     let renderedPrompt = null;
@@ -511,7 +443,7 @@ test('MessageProcessor renders exact file contents explicitly for Codex', async 
           };
         },
       },
-      config: buildConfig(),
+      config,
     });
 
     await processor.processJob(job);
