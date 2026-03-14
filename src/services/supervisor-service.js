@@ -1,58 +1,8 @@
 import crypto from 'node:crypto';
 import { MessageProcessor } from './message-processor.js';
-
-function extractText(message) {
-  return message?.text ?? message?.caption ?? null;
-}
-
-function selectAudioAttachment(message) {
-  if (message?.voice?.file_id) {
-    return {
-      kind: 'voice',
-      fileId: message.voice.file_id,
-      fileSize: message.voice.file_size ?? null,
-      mimeType: message.voice.mime_type ?? 'audio/ogg',
-      fileName: `voice-${message.message_id ?? 'message'}.ogg`,
-    };
-  }
-
-  if (message?.audio?.file_id) {
-    return {
-      kind: 'audio',
-      fileId: message.audio.file_id,
-      fileSize: message.audio.file_size ?? null,
-      mimeType: message.audio.mime_type ?? 'audio/mpeg',
-      fileName: message.audio.file_name ?? `audio-${message.message_id ?? 'message'}.mp3`,
-    };
-  }
-
-  if (message?.document?.file_id && `${message.document.mime_type ?? ''}`.startsWith('audio/')) {
-    return {
-      kind: 'document',
-      fileId: message.document.file_id,
-      fileSize: message.document.file_size ?? null,
-      mimeType: message.document.mime_type,
-      fileName: message.document.file_name ?? `audio-${message.message_id ?? 'message'}`,
-    };
-  }
-
-  return null;
-}
-
-function combineTextAndTranscript(text, transcript) {
-  const normalizedText = `${text ?? ''}`.trim();
-  const normalizedTranscript = `${transcript ?? ''}`.trim();
-
-  if (!normalizedTranscript) {
-    return normalizedText || null;
-  }
-
-  if (!normalizedText) {
-    return normalizedTranscript;
-  }
-
-  return `${normalizedText}\n\nAudio transcript:\n${normalizedTranscript}`;
-}
+import { TelegramUpdateIngester } from './supervisor-service/telegram-update-ingester.js';
+import { SupervisorJobRunner } from './supervisor-service/job-runner.js';
+import { OutboundMessageDispatcher } from './supervisor-service/outbound-dispatcher.js';
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -74,7 +24,6 @@ export class SupervisorService {
     this.db = db;
     this.telegramClient = telegramClient;
     this.config = config;
-    this.audioTranscriber = audioTranscriber;
     this.logger = logger;
     this.timers = timers;
     this.immediateSentMessages = 0;
@@ -89,174 +38,44 @@ export class SupervisorService {
         this.immediateSentMessages += await this.flushOutbound(1);
       },
     });
+    this.updateIngester = new TelegramUpdateIngester({
+      db,
+      telegramClient,
+      audioTranscriber,
+      config,
+      logger,
+    });
+    this.jobRunner = new SupervisorJobRunner({
+      db,
+      messageProcessor: this.messageProcessor,
+      logger,
+    });
+    this.outboundDispatcher = new OutboundMessageDispatcher({
+      db,
+      telegramClient,
+      logger,
+    });
   }
 
   isAllowedChat(chatId) {
-    return this.config.telegramAllowedChatIds.includes(`${chatId}`);
+    return this.updateIngester.isAllowedChat(chatId);
   }
 
   async transcribeAudioMessage(message, attachment) {
-    if (!this.audioTranscriber) {
-      throw new Error('Audio transcription is not configured.');
-    }
-
-    if (
-      attachment.fileSize != null &&
-      attachment.fileSize > this.config.telegramAudioMaxFileBytes
-    ) {
-      throw new Error(
-        `Audio file is too large to transcribe (${attachment.fileSize} bytes > ${this.config.telegramAudioMaxFileBytes} bytes).`,
-      );
-    }
-
-    const file = await this.telegramClient.getFile(attachment.fileId);
-
-    if (!file?.file_path) {
-      throw new Error('Telegram did not return a file path for the audio attachment.');
-    }
-
-    const audioBuffer = await this.telegramClient.downloadFile(file.file_path);
-    const transcription = await this.audioTranscriber.transcribe({
-      audioBuffer,
-      fileName: attachment.fileName,
-      mimeType: attachment.mimeType,
-    });
-
-    return {
-      text: transcription.text,
-      model: transcription.model,
-      telegramFilePath: file.file_path,
-    };
+    void message;
+    return this.updateIngester.transcribeAudioMessage(attachment);
   }
 
   async ingestUpdates(updates) {
-    let maxOffset = this.db.getCursor('telegram_updates_offset', 0);
-    let inserted = 0;
-
-    for (const update of updates) {
-      const updateId = update.update_id;
-      const message = update.message;
-
-      if (typeof updateId === 'number') {
-        maxOffset = Math.max(maxOffset, updateId + 1);
-      }
-
-      if (!message) {
-        continue;
-      }
-
-      const chatId = `${message.chat?.id ?? ''}`;
-      const text = extractText(message);
-      const attachment = selectAudioAttachment(message);
-      const allowed = this.isAllowedChat(chatId);
-      let resolvedText = text;
-      let metadata = {};
-      let status = !allowed ? 'ignored_unauthorized' : text ? 'received' : 'ignored_unsupported';
-
-      if (allowed && attachment) {
-        try {
-          const transcription = await this.transcribeAudioMessage(message, attachment);
-          resolvedText = combineTextAndTranscript(text, transcription.text);
-          metadata = {
-            audio: {
-              kind: attachment.kind,
-              mime_type: attachment.mimeType,
-              file_name: attachment.fileName,
-              file_size: attachment.fileSize,
-              telegram_file_path: transcription.telegramFilePath,
-              transcription_model: transcription.model,
-            },
-          };
-          status = resolvedText ? 'received' : 'ignored_unsupported';
-        } catch (error) {
-          const errorMessage = error instanceof Error ? error.message : `${error}`;
-          metadata = {
-            audio: {
-              kind: attachment.kind,
-              mime_type: attachment.mimeType,
-              file_name: attachment.fileName,
-              file_size: attachment.fileSize,
-              transcription_error: errorMessage,
-            },
-          };
-          status = text ? 'received' : 'ignored_unsupported';
-          this.logger.error(`Failed to transcribe Telegram audio message ${message.message_id ?? updateId}: ${errorMessage}`);
-        }
-      }
-
-      const row = this.db.insertInboundMessage({
-        updateId,
-        telegramMessageId: message.message_id,
-        chatId,
-        replyToMessageId: message.reply_to_message?.message_id ?? null,
-        text: resolvedText,
-        status,
-        metadata,
-        raw: update,
-      });
-
-      if (!row) {
-        continue;
-      }
-
-      inserted += 1;
-
-      if (allowed && resolvedText) {
-        this.db.queueJob({
-          jobType: 'process_inbound_message',
-          messageId: row.id,
-          payload: { chatId, telegramMessageId: message.message_id },
-        });
-      }
-    }
-
-    this.db.setCursor('telegram_updates_offset', maxOffset);
-    return { inserted, nextOffset: maxOffset };
+    return this.updateIngester.ingest(updates);
   }
 
   async processPendingJobs(limit) {
-    const jobs = this.db.listPendingJobs(limit);
-    let processed = 0;
-
-    for (const job of jobs) {
-      this.db.markJobRunning(job.id);
-
-      try {
-        await this.messageProcessor.processJob(job);
-        this.db.markJobCompleted(job.id);
-        processed += 1;
-      } catch (error) {
-        const message = error instanceof Error ? error.message : `${error}`;
-        this.db.markJobFailed(job.id, message);
-        this.logger.error(`Job ${job.id} failed: ${message}`);
-      }
-    }
-
-    return processed;
+    return this.jobRunner.processPending(limit);
   }
 
   async flushOutbound(limit = 10) {
-    const outboundMessages = this.db.listPendingOutbound(limit);
-    let sent = 0;
-
-    for (const row of outboundMessages) {
-      try {
-        const result = await this.telegramClient.sendMessage({
-          chatId: row.chat_id,
-          text: row.message_text,
-          replyToMessageId: row.reply_to_message_id,
-        });
-
-        this.db.markOutboundSent(row.id, result.message_id, result);
-        sent += 1;
-      } catch (error) {
-        const message = error instanceof Error ? error.message : `${error}`;
-        this.db.markOutboundFailed(row.id, message);
-        this.logger.error(`Outbound message ${row.id} failed: ${message}`);
-      }
-    }
-
-    return sent;
+    return this.outboundDispatcher.flush(limit);
   }
 
   computeLeaseTtlMs() {

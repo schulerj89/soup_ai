@@ -1,195 +1,8 @@
-import { splitTelegramText, truncateText } from '../utils/text.js';
 import { SqliteSession } from '../openai/sqlite-session.js';
-
-function createSessionTextItem(role, text, partType) {
-  const normalizedText = `${text ?? ''}`.trim();
-
-  if (!normalizedText) {
-    return null;
-  }
-
-  return {
-    role,
-    content: [{ type: partType, text: normalizedText }],
-  };
-}
-
-function buildSessionItems({ userMessage, assistantReply }) {
-  return [
-    createSessionTextItem('user', userMessage, 'input_text'),
-    createSessionTextItem('assistant', assistantReply, 'output_text'),
-  ].filter(Boolean);
-}
-
-function formatTaskList(tasks) {
-  if (tasks.length === 0) {
-    return 'No tracked tasks yet.';
-  }
-
-  return tasks
-    .map(
-      (task) =>
-        `#${task.id} ${task.status.toUpperCase()} ${task.title}${
-          task.result_summary ? `\n${truncateText(task.result_summary, 240)}` : ''
-        }`,
-    )
-    .join('\n\n');
-}
-
-function inferTaskTitle(text) {
-  const normalized = `${text ?? ''}`.replace(/\s+/g, ' ').trim();
-
-  if (!normalized) {
-    return 'Run local Codex task';
-  }
-
-  return truncateText(normalized, 90);
-}
-
-function buildCodexExecutionPrompt({ taskTitle, executionPlan }) {
-  const lines = [];
-
-  if (taskTitle) {
-    lines.push(`Task: ${taskTitle}`);
-    lines.push('');
-  }
-
-  if (executionPlan?.goal) {
-    lines.push('Goal:');
-    lines.push(executionPlan.goal);
-    lines.push('');
-  }
-
-  if (executionPlan?.targetPaths?.length) {
-    lines.push('Target paths:');
-    for (const targetPath of executionPlan.targetPaths) {
-      lines.push(`- ${targetPath}`);
-    }
-    lines.push('');
-  }
-
-  if (executionPlan?.steps?.length) {
-    lines.push('Required changes:');
-    for (const step of executionPlan.steps) {
-      lines.push(`- ${step}`);
-    }
-    lines.push('');
-  }
-
-  if (executionPlan?.exactFileContents?.length) {
-    lines.push('Exact file contents:');
-    lines.push('Write each file exactly as shown.');
-
-    for (const file of executionPlan.exactFileContents) {
-      lines.push('');
-      lines.push(`Path: ${file.path}`);
-      lines.push('Content:');
-      lines.push(file.content);
-    }
-
-    lines.push('');
-  }
-
-  if (executionPlan?.constraints?.length) {
-    lines.push('Constraints:');
-    for (const constraint of executionPlan.constraints) {
-      lines.push(`- ${constraint}`);
-    }
-    lines.push('');
-  }
-
-  if (executionPlan?.verification?.length) {
-    lines.push('Verification:');
-    for (const item of executionPlan.verification) {
-      lines.push(`- ${item}`);
-    }
-    lines.push('');
-  }
-
-  lines.push('Final response requirements:');
-  lines.push('- Do the requested work before producing the final response.');
-  lines.push('- End the final response with a JSON object that matches the provided Codex output schema.');
-  lines.push('- Put that JSON object after the exact marker `CODEX_RESULT_JSON:`.');
-  lines.push('- Do not write any text after the JSON object.');
-  lines.push('');
-  lines.push('Required ending format:');
-  lines.push('CODEX_RESULT_JSON:');
-  lines.push('{"completed":true,"summary":"...","files_changed":[],"verification":[],"commit_hash":null,"push_succeeded":null,"follow_up":null,"raw_user_visible_output":"..."}');
-  lines.push('');
-
-  return lines.join('\n').trim();
-}
-
-function formatCodexResultMessage(result) {
-  if (result.user_summary) {
-    return result.user_summary;
-  }
-
-  const lines = [result.summary];
-
-  if (result.task_id) {
-    lines.push(`task_id: ${result.task_id}`);
-  }
-
-  if (result.exit_code != null) {
-    lines.push(`exit_code: ${result.exit_code}`);
-  }
-
-  if (result.timed_out) {
-    lines.push('timed_out: true');
-  }
-
-  if (result.stdout) {
-    lines.push('');
-    lines.push('stdout:');
-    lines.push(truncateText(result.stdout, 1200));
-  }
-
-  if (result.stderr) {
-    lines.push('');
-    lines.push('stderr:');
-    lines.push(truncateText(result.stderr, 1200));
-  }
-
-  return lines.join('\n');
-}
-
-function hasRecordedWork(result) {
-  const report = result?.structuredReport;
-
-  if (!report || typeof report !== 'object') {
-    return false;
-  }
-
-  return (
-    report.completed === true ||
-    (Array.isArray(report.files_changed) && report.files_changed.length > 0) ||
-    (Array.isArray(report.verification) && report.verification.length > 0) ||
-    Boolean(report.commit_hash)
-  );
-}
-
-function reportHasFollowUp(report) {
-  return `${report?.follow_up ?? ''}`.trim().length > 0;
-}
-
-function classifyCodexResult(result) {
-  if (result.exitCode !== 0) {
-    return 'failed';
-  }
-
-  const report = result?.structuredReport;
-
-  if (report && typeof report === 'object') {
-    if (report.completed === true && !reportHasFollowUp(report) && result.acknowledgedOnly !== true) {
-      return 'completed';
-    }
-
-    return hasRecordedWork(result) ? 'partial' : 'failed';
-  }
-
-  return result.acknowledgedOnly === true ? 'failed' : 'completed';
-}
+import { buildSessionItems } from './message-processor/helpers.js';
+import { ReplyQueue } from './message-processor/reply-queue.js';
+import { MessageCommandHandler } from './message-processor/command-handler.js';
+import { CodexTaskRunner } from './message-processor/codex-task-runner.js';
 
 export class MessageProcessor {
   constructor({
@@ -204,121 +17,19 @@ export class MessageProcessor {
     this.db = db;
     this.agent = agent;
     this.executionPlanner = executionPlanner;
-    this.codexRunner = codexRunner;
     this.config = config;
     this.memorySummarizer = memorySummarizer;
     this.onAcknowledgementQueued = onAcknowledgementQueued;
-  }
-
-  queueReply({ chatId, text, replyToMessageId }) {
-    const parts = splitTelegramText(text);
-
-    for (let index = 0; index < parts.length; index += 1) {
-      this.db.queueOutboundMessage({
-        chatId,
-        text: parts[index],
-        replyToMessageId: index === 0 ? replyToMessageId : null,
-      });
-    }
-  }
-
-  async runCodexTool({
-    taskTitle,
-    prompt,
-    workingDirectory,
-    sourceJobId,
-    sourceMessageId,
-  }) {
-    const previewCommand = [
-      this.config.codexBin,
-      'exec',
-      '--dangerously-bypass-approvals-and-sandbox',
-      '-C',
-      workingDirectory,
-      '<prompt>',
-    ].join(' ');
-
-    const task = this.db.createTask({
-      sourceJobId,
-      sourceMessageId,
-      title: taskTitle,
-      details: prompt,
-      codexCommand: previewCommand,
+    this.replyQueue = new ReplyQueue({ db });
+    this.commandHandler = new MessageCommandHandler({
+      db,
+      replyQueue: this.replyQueue,
     });
-
-    try {
-      const result = await this.codexRunner.run({ prompt, workingDirectory });
-
-      const structuredReport = result.structuredReport ?? null;
-      const resultStatus = classifyCodexResult(result);
-      const completed = resultStatus === 'completed';
-      const summary =
-        resultStatus === 'failed'
-          ? result.exitCode !== 0
-            ? `Codex failed with exit code ${result.exitCode}.`
-            : 'Codex did not complete the requested work.'
-          : resultStatus === 'partial'
-            ? 'Codex changed the repo but did not complete the requested work.'
-            : structuredReport?.summary?.trim() || 'Codex completed successfully.';
-
-      if (resultStatus === 'completed') {
-        this.db.completeTask(task.id, { resultSummary: summary, exitCode: result.exitCode });
-      } else if (resultStatus === 'partial') {
-        this.db.markTaskPartial(task.id, { resultSummary: summary, exitCode: result.exitCode });
-      } else {
-        this.db.failTask(task.id, { resultSummary: summary, exitCode: result.exitCode });
-      }
-
-      const output = {
-        ok: completed,
-        task_id: task.id,
-        task_title: taskTitle,
-        summary,
-        working_directory: result.workingDirectory,
-        command: result.command,
-        exit_code: result.exitCode,
-        timed_out: result.timedOut,
-        result_status: resultStatus,
-        acknowledged_only: result.acknowledgedOnly ?? false,
-        structured_report: structuredReport,
-        stdout: truncateText(result.stdout, this.config.codexMaxOutputChars),
-        stderr: truncateText(result.stderr, this.config.codexMaxOutputChars),
-      };
-
-      this.db.recordToolRun({
-        taskId: task.id,
-        toolName: 'run_codex_exec',
-        input: { taskTitle, prompt, workingDirectory },
-        output,
-        exitCode: result.exitCode,
-      });
-
-      return output;
-    } catch (error) {
-      const message = error instanceof Error ? error.message : `${error}`;
-
-      this.db.failTask(task.id, { resultSummary: message, exitCode: -1 });
-      this.db.recordToolRun({
-        taskId: task.id,
-        toolName: 'run_codex_exec',
-        input: { taskTitle, prompt, workingDirectory },
-        output: { ok: false, error: message },
-        exitCode: -1,
-      });
-
-      return {
-        ok: false,
-        task_id: task.id,
-        task_title: taskTitle,
-        summary: message,
-        working_directory: workingDirectory,
-        command: previewCommand,
-        exit_code: -1,
-        timed_out: false,
-        stdout: '',
-        stderr: message,
-      };
-    }
+    this.codexTaskRunner = new CodexTaskRunner({
+      db,
+      codexRunner,
+      config,
+    });
   }
 
   async processJob(job) {
@@ -336,48 +47,7 @@ export class MessageProcessor {
     });
     const projectRoot = this.config.projectRoot ?? process.cwd();
 
-    if (lower === '/help') {
-      this.queueReply({
-        chatId: message.chat_id,
-        replyToMessageId: message.telegram_message_id,
-        text: [
-          'Commands:',
-          '/help',
-          '/health',
-          '/tasks',
-          '',
-          'Any other message is handled by the AI supervisor.',
-        ].join('\n'),
-      });
-      this.db.markMessageProcessed(message.id);
-      return;
-    }
-
-    if (lower === '/health' || lower === '/status') {
-      const snapshot = this.db.getQueueSnapshot();
-      this.queueReply({
-        chatId: message.chat_id,
-        replyToMessageId: message.telegram_message_id,
-        text: [
-          'Tosh the AI Bot health',
-          `pendingJobs: ${snapshot.pendingJobs}`,
-          `runningJobs: ${snapshot.runningJobs}`,
-          `pendingOutbound: ${snapshot.pendingOutbound}`,
-          `runningTasks: ${snapshot.runningTasks}`,
-        ].join('\n'),
-      });
-      this.db.markMessageProcessed(message.id);
-      return;
-    }
-
-    if (lower === '/tasks') {
-      const tasks = this.db.listRecentTasks(5);
-      this.queueReply({
-        chatId: message.chat_id,
-        replyToMessageId: message.telegram_message_id,
-        text: formatTaskList(tasks),
-      });
-      this.db.markMessageProcessed(message.id);
+    if (await this.commandHandler.tryHandle(message, lower)) {
       return;
     }
 
@@ -399,109 +69,9 @@ export class MessageProcessor {
         };
 
     if (plan.action === 'run_codex') {
-      const acknowledgement =
-        typeof this.agent.composeAcknowledgement === 'function'
-          ? await this.agent.composeAcknowledgement({
-              chatId: message.chat_id,
-              messageText: text,
-              workspaceRoot: this.config.workspaceRoot,
-            })
-          : "Got it. I'll start that now.";
-
-      this.queueReply({
-        chatId: message.chat_id,
-        replyToMessageId: message.telegram_message_id,
-        text: acknowledgement,
-      });
-
-      if (this.onAcknowledgementQueued) {
-        await this.onAcknowledgementQueued();
-      }
-
-      const codexPrompt = buildCodexExecutionPrompt({
-        taskTitle: plan.taskTitle ?? inferTaskTitle(text),
-        executionPlan: plan.executionPlan,
-      });
-
-      const codexResult = await this.runCodexTool({
-        taskTitle: plan.taskTitle ?? inferTaskTitle(text),
-        prompt: codexPrompt,
-        workingDirectory: plan.workingDirectory ?? projectRoot,
-        sourceJobId: job.id,
-        sourceMessageId: message.id,
-      });
-      const userSummary =
-        typeof this.agent.summarizeCodexResult === 'function'
-          ? await this.agent.summarizeCodexResult({
-              chatId: message.chat_id,
-              workspaceRoot: this.config.workspaceRoot,
-              userMessage: text,
-              codexResult,
-            })
-          : null;
-
-      this.queueReply({
-        chatId: message.chat_id,
-        replyToMessageId: message.telegram_message_id,
-        text: formatCodexResultMessage({
-          ...codexResult,
-          user_summary: userSummary,
-        }),
-      });
-
-      await session.addItems(
-        buildSessionItems({
-          userMessage: text,
-          assistantReply: userSummary || codexResult.summary,
-        }),
-      );
+      await this.processCodexPlan({ job, message, text, session, plan, projectRoot });
     } else {
-      const replyText =
-        typeof this.agent.answerDirectly === 'function'
-          ? await this.agent.answerDirectly({
-              chatId: message.chat_id,
-              workspaceRoot: this.config.workspaceRoot,
-              messageText: text,
-              session,
-              responseOutline: plan.responseOutline,
-              planReason: plan.reason,
-            })
-          : ((await this.agent.handleMessage?.({
-              chatId: message.chat_id,
-              messageText: text,
-              session,
-              workspaceRoot: this.config.workspaceRoot,
-              codexTool: async (params) =>
-                this.runCodexTool({
-                  ...params,
-                  sourceJobId: job.id,
-                  sourceMessageId: message.id,
-                }),
-              codexStatusTool: async () => this.codexRunner.getStatus(),
-              recentTasksTool: async () =>
-                this.db.listRecentTasks(10).map((task) => ({
-                  id: task.id,
-                  title: task.title,
-                  status: task.status,
-                  result_summary: task.result_summary,
-                  created_at: task.created_at,
-                  completed_at: task.completed_at,
-                })),
-              queueSnapshotTool: async () => this.db.getQueueSnapshot(),
-            }))?.text ?? 'No response text returned.');
-
-      this.queueReply({
-        chatId: message.chat_id,
-        replyToMessageId: message.telegram_message_id,
-        text: replyText,
-      });
-
-      await session.addItems(
-        buildSessionItems({
-          userMessage: text,
-          assistantReply: replyText,
-        }),
-      );
+      await this.processDirectReply({ job, message, text, session, plan });
     }
 
     if (this.memorySummarizer) {
@@ -509,5 +79,116 @@ export class MessageProcessor {
     }
 
     this.db.markMessageProcessed(message.id);
+  }
+
+  async processCodexPlan({ job, message, text, session, plan, projectRoot }) {
+    const acknowledgement =
+      typeof this.agent.composeAcknowledgement === 'function'
+        ? await this.agent.composeAcknowledgement({
+            chatId: message.chat_id,
+            messageText: text,
+            workspaceRoot: this.config.workspaceRoot,
+          })
+        : "Got it. I'll start that now.";
+
+    this.replyQueue.queue({
+      chatId: message.chat_id,
+      replyToMessageId: message.telegram_message_id,
+      text: acknowledgement,
+    });
+
+    if (this.onAcknowledgementQueued) {
+      await this.onAcknowledgementQueued();
+    }
+
+    const codexExecution = this.codexTaskRunner.createPrompt({
+      userText: text,
+      plan: {
+        ...plan,
+        workingDirectory: plan.workingDirectory ?? projectRoot,
+      },
+    });
+
+    const codexResult = await this.codexTaskRunner.execute({
+      taskTitle: codexExecution.taskTitle,
+      prompt: codexExecution.prompt,
+      workingDirectory: codexExecution.workingDirectory,
+      sourceJobId: job.id,
+      sourceMessageId: message.id,
+    });
+    const userSummary =
+      typeof this.agent.summarizeCodexResult === 'function'
+        ? await this.agent.summarizeCodexResult({
+            chatId: message.chat_id,
+            workspaceRoot: this.config.workspaceRoot,
+            userMessage: text,
+            codexResult,
+          })
+        : null;
+
+    this.replyQueue.queue({
+      chatId: message.chat_id,
+      replyToMessageId: message.telegram_message_id,
+      text: this.codexTaskRunner.formatResultMessage({
+        ...codexResult,
+        user_summary: userSummary,
+      }),
+    });
+
+    await session.addItems(
+      buildSessionItems({
+        userMessage: text,
+        assistantReply: userSummary || codexResult.summary,
+      }),
+    );
+  }
+
+  async processDirectReply({ job, message, text, session, plan }) {
+    const replyText =
+      typeof this.agent.answerDirectly === 'function'
+        ? await this.agent.answerDirectly({
+            chatId: message.chat_id,
+            workspaceRoot: this.config.workspaceRoot,
+            messageText: text,
+            session,
+            responseOutline: plan.responseOutline,
+            planReason: plan.reason,
+          })
+        : ((await this.agent.handleMessage?.({
+            chatId: message.chat_id,
+            messageText: text,
+            session,
+            workspaceRoot: this.config.workspaceRoot,
+            codexTool: async (params) =>
+              this.codexTaskRunner.execute({
+                ...params,
+                sourceJobId: job.id,
+                sourceMessageId: message.id,
+              }),
+            codexStatusTool: async () => this.codexTaskRunner.codexRunner.getStatus(),
+            recentTasksTool: async () =>
+              this.db.listRecentTasks(10).map((task) => ({
+                id: task.id,
+                title: task.title,
+                status: task.status,
+                result_summary: task.result_summary,
+                created_at: task.created_at,
+                completed_at: task.completed_at,
+              })),
+            queueSnapshotTool: async () => this.db.getQueueSnapshot(),
+          }))?.text ?? 'No response text returned.');
+
+    this.replyQueue.queue({
+      chatId: message.chat_id,
+      replyToMessageId: message.telegram_message_id,
+      text: replyText,
+    });
+
+    await session.addItems(
+      buildSessionItems({
+        userMessage: text,
+        assistantReply: replyText,
+      }),
+    );
   }
 }

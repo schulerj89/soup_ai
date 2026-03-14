@@ -97,6 +97,57 @@ test('MessageProcessor lets the supervisor agent choose Codex tool usage', async
   }
 });
 
+test('MessageProcessor handles built-in slash commands without invoking planning', async () => {
+  const db = createTestDb();
+
+  try {
+    const { job, inbound } = queueInboundJob(db, {
+      updateId: 7,
+      telegramMessageId: 17,
+      chatId: 'chat-commands',
+      text: '/help',
+    });
+
+    let plannerCalls = 0;
+
+    const processor = new MessageProcessor({
+      db,
+      agent: {},
+      executionPlanner: {
+        plan: async () => {
+          plannerCalls += 1;
+          return {
+            action: 'answer_directly',
+            reason: 'unused',
+            responseOutline: null,
+            taskTitle: null,
+            executionPlan: null,
+            workingDirectory: null,
+          };
+        },
+      },
+      codexRunner: {
+        run: async () => {
+          throw new Error('codex should not run for slash commands');
+        },
+        getStatus: async () => ({ ok: true }),
+      },
+      config,
+    });
+
+    await processor.processJob(job);
+
+    const outbound = listOutboundMessages(db);
+    const processed = db.getMessageById(inbound.id);
+
+    assert.equal(plannerCalls, 0);
+    assert.deepEqual(outbound, [['Commands:', '/help', '/health', '/tasks', '', 'Any other message is handled by the AI supervisor.'].join('\n')]);
+    assert.equal(processed.status, 'processed');
+  } finally {
+    db.close();
+  }
+});
+
 test('MessageProcessor still uses the supervisor agent for informational requests', async () => {
   const db = createTestDb();
 
