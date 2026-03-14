@@ -25,6 +25,10 @@ export class SupervisorAgent {
     this.systemPrompt = loadSystemPrompt();
   }
 
+  getDefaultAcknowledgement() {
+    return "Got it. I'll start that now.";
+  }
+
   buildAgent({ codexTool, codexStatusTool, recentTasksTool, queueSnapshotTool }) {
     const tools = [
       this.webSearchToolFactory({
@@ -85,10 +89,35 @@ export class SupervisorAgent {
   }
 
   async composeAcknowledgement({ chatId, messageText, workspaceRoot }) {
-    void chatId;
-    void messageText;
-    void workspaceRoot;
-    return "Got it. I'll start that now.";
+    try {
+      const result = await this.runImpl(
+        this.agentFactory({
+          name: 'Tosh the AI Bot',
+          model: this.model,
+          instructions: [
+            this.systemPrompt,
+            '',
+            'Write a short acknowledgement for a request that will be handled through local Codex execution.',
+            'Keep it to one sentence.',
+            'Do not claim the work is already done.',
+            'Do not ask follow-up questions.',
+            'Keep the reply concise and factual.',
+          ].join('\n'),
+        }),
+        `User message:\n${messageText}`,
+        {
+          context: {
+            chatId,
+            workspaceRoot,
+          },
+          maxTurns: 1,
+        },
+      );
+
+      return `${result.finalOutput ?? ''}`.trim() || this.getDefaultAcknowledgement();
+    } catch {
+      return this.getDefaultAcknowledgement();
+    }
   }
 
   async answerDirectly({ chatId, workspaceRoot, messageText, session = null, responseOutline = null, planReason = null }) {

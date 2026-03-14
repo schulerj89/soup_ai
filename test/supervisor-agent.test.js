@@ -47,8 +47,40 @@ test('SupervisorAgent builds a Tosh agent and returns final output text', async 
 });
 
 test('SupervisorAgent can compose a short acknowledgement', async () => {
+  const agentConfigs = [];
+  let runOptions = null;
   const agent = new SupervisorAgent({
     model: 'gpt-4.1-mini',
+    agentFactory: (options) => {
+      agentConfigs.push(options);
+      return { options };
+    },
+    runImpl: async (_agent, _input, options) => {
+      runOptions = options;
+      return {
+        finalOutput: "I'll handle that now.",
+      };
+    },
+  });
+
+  const result = await agent.composeAcknowledgement({
+    chatId: '123',
+    messageText: 'Please update the repo.',
+    workspaceRoot: 'C:/Users/joshs/Projects',
+  });
+
+  assert.equal(result, "I'll handle that now.");
+  assert.equal(agentConfigs[0].name, 'Tosh the AI Bot');
+  assert.equal(agentConfigs[0].model, 'gpt-4.1-mini');
+  assert.equal(runOptions.maxTurns, 1);
+});
+
+test('SupervisorAgent falls back to the default acknowledgement when the model call fails', async () => {
+  const agent = new SupervisorAgent({
+    model: 'gpt-4.1-mini',
+    runImpl: async () => {
+      throw new Error('OpenAI unavailable');
+    },
   });
 
   const result = await agent.composeAcknowledgement({
