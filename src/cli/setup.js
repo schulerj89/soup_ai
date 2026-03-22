@@ -1,30 +1,13 @@
-import fs from 'node:fs';
 import path from 'node:path';
 import { createInterface } from 'node:readline/promises';
-import dotenv from 'dotenv';
-import { loadConfig } from '../config/load-config.js';
-import { AppDb } from '../db/app-db.js';
-import { TelegramClient } from '../telegram/telegram-client.js';
 import { projectRoot } from '../utils/paths.js';
-
-function normalizePathForEnv(value) {
-  return value.replaceAll('\\', '/');
-}
-
-async function discoverChats(token) {
-  if (!token) {
-    return [];
-  }
-
-  try {
-    const client = new TelegramClient({ token });
-    const updates = await client.getUpdates({ offset: 0, limit: 25, timeoutSeconds: 0 });
-    const ids = [...new Set(updates.map((update) => update.message?.chat?.id).filter(Boolean))];
-    return ids.map((value) => `${value}`);
-  } catch {
-    return [];
-  }
-}
+import {
+  buildEnvFileContents,
+  buildSetupDefaults,
+  discoverTelegramChatIds,
+  readExistingEnv,
+  writeEnvAndInitializeDb,
+} from './setup-lib.js';
 
 async function promptValue(rl, label, defaultValue) {
   const suffix = defaultValue ? ` [${defaultValue}]` : '';
@@ -34,9 +17,7 @@ async function promptValue(rl, label, defaultValue) {
 
 async function main() {
   const envPath = path.join(projectRoot, '.env');
-  const existingEnv = fs.existsSync(envPath)
-    ? dotenv.parse(fs.readFileSync(envPath, 'utf8'))
-    : {};
+  const existingEnv = readExistingEnv(envPath);
 
   const rl = createInterface({
     input: process.stdin,
@@ -47,16 +28,16 @@ async function main() {
     console.log('Soup AI setup');
     console.log('');
 
-    const openAiApiKey = await promptValue(rl, 'OpenAI API key', existingEnv.OPENAI_API_KEY ?? '');
+    const defaults = buildSetupDefaults(existingEnv);
+    const openAiApiKey = await promptValue(rl, 'OpenAI API key', defaults.openAiApiKey);
     const telegramBotToken = await promptValue(
       rl,
       'Telegram bot token',
-      existingEnv.TELEGRAM_BOT_TOKEN ?? '',
+      defaults.telegramBotToken,
     );
 
-    const discoveredChatIds = await discoverChats(telegramBotToken);
-    const allowedChatIdsDefault =
-      existingEnv.TELEGRAM_ALLOWED_CHAT_IDS ?? discoveredChatIds.join(',');
+    const discoveredChatIds = await discoverTelegramChatIds(telegramBotToken);
+    const setupDefaults = buildSetupDefaults(existingEnv, discoveredChatIds);
 
     if (discoveredChatIds.length > 0) {
       console.log(`Discovered chat IDs: ${discoveredChatIds.join(', ')}`);
@@ -65,67 +46,60 @@ async function main() {
     const allowedChatIds = await promptValue(
       rl,
       'Allowed Telegram chat IDs (comma-separated)',
-      allowedChatIdsDefault,
+      setupDefaults.allowedChatIds,
     );
     const workspaceRoot = await promptValue(
       rl,
       'Workspace root for Codex',
-      existingEnv.SUPERVISOR_WORKSPACE_ROOT ?? 'C:/Users/joshs/Projects',
+      setupDefaults.workspaceRoot,
     );
     const openAiModel = await promptValue(
       rl,
       'OpenAI model',
-      existingEnv.OPENAI_MODEL ?? 'gpt-4.1-mini',
+      setupDefaults.openAiModel,
     );
     const openAiMemoryModel = await promptValue(
       rl,
       'OpenAI memory model',
-      existingEnv.OPENAI_MEMORY_MODEL ?? existingEnv.OPENAI_MODEL ?? 'gpt-4.1-mini',
+      setupDefaults.openAiMemoryModel,
     );
     const openAiTranscriptionModel = await promptValue(
       rl,
       'OpenAI transcription model',
-      existingEnv.OPENAI_TRANSCRIPTION_MODEL ?? 'gpt-4o-mini-transcribe',
+      setupDefaults.openAiTranscriptionModel,
     );
     const dbPath = await promptValue(
       rl,
       'SQLite DB path',
-      existingEnv.SUPERVISOR_DB_PATH ?? './data/soup-ai.sqlite',
+      setupDefaults.dbPath,
     );
-    const codexBin = await promptValue(rl, 'Codex binary', existingEnv.CODEX_BIN ?? 'codex');
+    const codexBin = await promptValue(rl, 'Codex binary', setupDefaults.codexBin);
     const codexSearch = await promptValue(
       rl,
       'Enable Codex web search (true/false)',
-      existingEnv.CODEX_ENABLE_SEARCH ?? 'false',
+      setupDefaults.codexSearch,
     );
 
-    const contents = [
-      `OPENAI_API_KEY=${openAiApiKey}`,
-      `OPENAI_MODEL=${openAiModel}`,
-      `OPENAI_MEMORY_MODEL=${openAiMemoryModel}`,
-      `OPENAI_TRANSCRIPTION_MODEL=${openAiTranscriptionModel}`,
-      `TELEGRAM_BOT_TOKEN=${telegramBotToken}`,
-      `TELEGRAM_ALLOWED_CHAT_IDS=${allowedChatIds}`,
-      `TELEGRAM_API_BASE_URL=${existingEnv.TELEGRAM_API_BASE_URL ?? 'https://api.telegram.org'}`,
-      `TELEGRAM_POLL_LIMIT=${existingEnv.TELEGRAM_POLL_LIMIT ?? '25'}`,
-      `TELEGRAM_POLL_TIMEOUT_SECONDS=${existingEnv.TELEGRAM_POLL_TIMEOUT_SECONDS ?? '0'}`,
-      `TELEGRAM_AUDIO_MAX_FILE_BYTES=${existingEnv.TELEGRAM_AUDIO_MAX_FILE_BYTES ?? '25165824'}`,
-      `SUPERVISOR_DB_PATH=${normalizePathForEnv(dbPath)}`,
-      `SUPERVISOR_WORKSPACE_ROOT=${normalizePathForEnv(workspaceRoot)}`,
-      `SUPERVISOR_MAX_JOBS_PER_RUN=${existingEnv.SUPERVISOR_MAX_JOBS_PER_RUN ?? '5'}`,
-      `CODEX_BIN=${codexBin}`,
-      `CODEX_MODEL=${existingEnv.CODEX_MODEL ?? ''}`,
-      `CODEX_ENABLE_SEARCH=${codexSearch}`,
-      `CODEX_TIMEOUT_MS=${existingEnv.CODEX_TIMEOUT_MS ?? '900000'}`,
-      `CODEX_MAX_OUTPUT_CHARS=${existingEnv.CODEX_MAX_OUTPUT_CHARS ?? '16000'}`,
-      '',
-    ].join('\n');
+    const contents = buildEnvFileContents({
+      existingEnv,
+      values: {
+        openAiApiKey,
+        telegramBotToken,
+        allowedChatIds,
+        workspaceRoot,
+        openAiModel,
+        openAiMemoryModel,
+        openAiTranscriptionModel,
+        dbPath,
+        codexBin,
+        codexSearch,
+      },
+    });
 
-    fs.writeFileSync(envPath, contents, 'utf8');
-
-    const config = loadConfig();
-    const db = new AppDb({ dbPath: config.dbPath });
-    db.close();
+    writeEnvAndInitializeDb({
+      envPath,
+      contents,
+    });
 
     console.log('');
     console.log(`Wrote ${path.relative(projectRoot, envPath)} and initialized the SQLite database.`);
