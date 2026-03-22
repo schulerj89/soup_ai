@@ -32,7 +32,7 @@ npm run setup
 
 `npm run setup` opens an interactive terminal setup wizard, writes `.env`, and initializes the SQLite DB. In non-interactive environments it falls back to the prompt-based setup flow. The setup process collects:
 
-![Soup AI setup wizard](./docs/soup_ai.png)
+![Soup AI setup wizard](./docs/soup_ai_setup.png)
 
 - `OPENAI_API_KEY`
 - `TELEGRAM_BOT_TOKEN`
