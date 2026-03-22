@@ -15,21 +15,6 @@
 - Uses a lease so overlapping scheduler runs do not process the queue at the same time
 - Recovers abandoned running jobs/tasks if a prior run died mid-execution
 
-## Main components
-
-- `src/cli/setup.js`: interactive `.env` setup and DB initialization
-- `src/cli/supervisor-once.js`: one supervisor tick
-- `src/cli/discover-telegram.js`: list recent Telegram chat IDs seen by the bot
-- `src/cli/inspect-codex.js`: inspect stored Codex prompts/results from SQLite
-- `src/services/supervisor-service.js`: ingest, process, and flush loop
-- `src/services/message-processor.js`: command handling, planning, direct replies, and Codex task flow
-- `src/openai/execution-planner.js`: decides direct reply vs. Codex execution
-- `src/openai/supervisor-agent.js`: direct answers, Codex acknowledgements, and result summaries
-- `src/openai/memory-summarizer.js`: condenses older conversation history
-- `src/openai/audio-transcriber.js`: downloads/transcribes Telegram audio
-- `src/tools/codex-runner.js`: guarded `codex exec` wrapper plus local Codex status inspection
-- `src/db/app-db.js`: SQLite schema and persistence
-
 ## Requirements
 
 - Windows with Task Scheduler
@@ -48,6 +33,8 @@ npm run task:register
 ```
 
 `npm run setup` opens an interactive terminal setup wizard, writes `.env`, and initializes the SQLite DB. In non-interactive environments it falls back to the prompt-based setup flow. The setup process collects:
+
+![Soup AI setup wizard](./docs/soup_ai.png)
 
 - `OPENAI_API_KEY`
 - `TELEGRAM_BOT_TOKEN`
