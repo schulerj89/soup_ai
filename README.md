@@ -28,8 +28,6 @@
 ```powershell
 npm install
 npm run setup
-npm run supervisor:once
-npm run task:register
 ```
 
 `npm run setup` opens an interactive terminal setup wizard, writes `.env`, and initializes the SQLite DB. In non-interactive environments it falls back to the prompt-based setup flow. The setup process collects:
@@ -48,6 +46,20 @@ npm run task:register
 - `CODEX_ENABLE_SEARCH`
 
 See [docs/telegram.md](./docs/telegram.md) for the bot token and chat ID workflow.
+
+After setup, send your bot a Telegram message or voice note from an allowed chat so Soup AI has something to ingest and process.
+
+```powershell
+npm run supervisor:once
+```
+
+That single run polls Telegram, downloads and transcribes supported voice/audio messages, processes text requests, and sends queued replies.
+
+If that works, register the scheduled task:
+
+```powershell
+npm run task:register
+```
 
 ## Useful commands
 
