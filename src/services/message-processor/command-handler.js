@@ -23,7 +23,7 @@ export class MessageCommandHandler {
           chatId: message.chat_id,
           replyToMessageId: message.telegram_message_id,
           text: [
-            'Tosh the AI Bot health',
+            'Soup AI health',
             `pendingJobs: ${snapshot.pendingJobs}`,
             `runningJobs: ${snapshot.runningJobs}`,
             `pendingOutbound: ${snapshot.pendingOutbound}`,

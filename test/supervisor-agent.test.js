@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { SupervisorAgent } from '../src/openai/supervisor-agent.js';
 
-test('SupervisorAgent builds a Tosh agent and returns final output text', async () => {
+test('SupervisorAgent builds a Soup AI agent and returns final output text', async () => {
   const toolDefinitions = [];
   const hostedToolDefinitions = [];
   let agentConfig = null;
@@ -37,7 +37,7 @@ test('SupervisorAgent builds a Tosh agent and returns final output text', async 
   });
 
   assert.equal(result.text, 'Finished the task.');
-  assert.equal(agentConfig.name, 'Tosh the AI Bot');
+  assert.equal(agentConfig.name, 'Soup AI');
   assert.deepEqual(
     toolDefinitions.map((entry) => entry.name),
     ['run_codex_exec', 'get_codex_status', 'list_recent_tasks', 'get_supervisor_snapshot'],
@@ -70,7 +70,7 @@ test('SupervisorAgent can compose a short acknowledgement', async () => {
   });
 
   assert.equal(result, "I'll handle that now.");
-  assert.equal(agentConfigs[0].name, 'Tosh the AI Bot');
+  assert.equal(agentConfigs[0].name, 'Soup AI');
   assert.equal(agentConfigs[0].model, 'gpt-4.1-mini');
   assert.equal(runOptions.maxTurns, 1);
 });

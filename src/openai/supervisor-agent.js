@@ -75,7 +75,7 @@ export class SupervisorAgent {
     );
 
     return this.agentFactory({
-      name: 'Tosh the AI Bot',
+      name: 'Soup AI',
       model: this.model,
       instructions: (runContext) =>
         [
@@ -92,7 +92,7 @@ export class SupervisorAgent {
     try {
       const result = await this.runImpl(
         this.agentFactory({
-          name: 'Tosh the AI Bot',
+          name: 'Soup AI',
           model: this.model,
           instructions: [
             this.systemPrompt,
@@ -123,7 +123,7 @@ export class SupervisorAgent {
   async answerDirectly({ chatId, workspaceRoot, messageText, session = null, responseOutline = null, planReason = null }) {
     const result = await this.runImpl(
       this.agentFactory({
-        name: 'Tosh the AI Bot',
+        name: 'Soup AI',
         model: this.model,
         instructions: [
           this.systemPrompt,
@@ -163,7 +163,7 @@ export class SupervisorAgent {
   async summarizeCodexResult({ chatId, workspaceRoot, userMessage, codexResult }) {
     const result = await this.runImpl(
       this.agentFactory({
-        name: 'Tosh the AI Bot',
+        name: 'Soup AI',
         model: this.model,
         instructions: [
           this.systemPrompt,
