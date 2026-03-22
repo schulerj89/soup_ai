@@ -5,6 +5,10 @@ async function main() {
   const shouldUseTui = Boolean(process.stdin.isTTY && process.stdout.isTTY && !process.env.CI);
 
   if (shouldUseTui) {
+    console.clear();
+  }
+
+  if (shouldUseTui) {
     await runSetupTui();
     return;
   }

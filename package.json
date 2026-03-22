@@ -8,7 +8,7 @@
     "test": "test"
   },
   "scripts": {
-    "setup": "node src/cli/setup.js",
+    "setup": "node --disable-warning=ExperimentalWarning src/cli/setup.js",
     "discover:telegram": "node src/cli/discover-telegram.js",
     "inspect:codex": "node src/cli/inspect-codex.js",
     "send:message": "node src/cli/send-message.js",

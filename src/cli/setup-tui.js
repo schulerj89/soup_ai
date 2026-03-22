@@ -13,6 +13,30 @@ import {
 
 const h = React.createElement;
 
+const SOUP_HEADER_LINES = [
+  [
+    { text: '  ███████╗ ██████╗ ██╗   ██╗██████╗ ', color: 'yellow' },
+  ],
+  [
+    { text: '  ██╔════╝██╔═══██╗██║   ██║██╔══██╗', color: 'yellow' },
+  ],
+  [
+    { text: '  ███████╗██║   ██║██║   ██║██████╔╝', color: 'red' },
+  ],
+  [
+    { text: '  ╚════██║██║   ██║██║   ██║██╔═══╝ ', color: 'red' },
+  ],
+  [
+    { text: '  ███████║╚██████╔╝╚██████╔╝██║     ', color: 'magenta' },
+  ],
+  [
+    { text: '  ╚══════╝ ╚═════╝  ╚═════╝ ╚═╝     ', color: 'magenta' },
+  ],
+  [
+    { text: '  AI setup wizard', color: 'cyan' },
+  ],
+];
+
 const FIELDS = [
   {
     key: 'openAiApiKey',
@@ -81,6 +105,33 @@ function maskValue(field, value) {
   return `${field.mask.repeat(visibleLength)} (${value.length} chars)`;
 }
 
+function SoupHeader() {
+  return h(
+    Box,
+    { flexDirection: 'column', marginBottom: 1 },
+    ...SOUP_HEADER_LINES.map((line, index) =>
+      h(
+        Box,
+        { key: `header-line-${index}`, flexDirection: 'row' },
+        ...line.map((segment, segmentIndex) =>
+          h(
+            Text,
+            {
+              key: `header-segment-${index}-${segmentIndex}`,
+              color: segment.color,
+              bold: segment.text.includes('Soup AI'),
+            },
+            segment.text,
+          ),
+        ),
+      ),
+    ),
+    h(Text, { color: 'green' }, 'Telegram text, Telegram voice, local Codex'),
+    h(Text, { color: 'gray' }, 'Configure the local bot before the first Telegram run.'),
+    h(Text, null, ''),
+  );
+}
+
 function SetupFieldScreen({
   field,
   stepNumber,
@@ -94,7 +145,7 @@ function SetupFieldScreen({
   return h(
     Box,
     { flexDirection: 'column', paddingX: 1 },
-    h(Text, { bold: true }, 'Soup AI setup'),
+    h(SoupHeader),
     h(Text, { color: 'gray' }, `Step ${stepNumber} of ${totalSteps}`),
     h(Text, null, ''),
     h(Text, { bold: true }, field.label),
@@ -135,6 +186,7 @@ function ReviewScreen({
   return h(
     Box,
     { flexDirection: 'column', paddingX: 1 },
+    h(SoupHeader),
     h(Text, { bold: true }, 'Review setup values'),
     h(Text, { color: 'gray' }, 'Use up/down to select a field, Enter to save, E to edit, Esc to exit.'),
     h(Text, null, ''),
@@ -162,7 +214,7 @@ function SavingScreen({ text }) {
   return h(
     Box,
     { flexDirection: 'column', paddingX: 1 },
-    h(Text, { bold: true }, 'Soup AI setup'),
+    h(SoupHeader),
     h(Text, null, ''),
     h(Text, { color: 'cyan' }, text),
   );
@@ -172,6 +224,7 @@ function DoneScreen({ envPath }) {
   return h(
     Box,
     { flexDirection: 'column', paddingX: 1 },
+    h(SoupHeader),
     h(Text, { bold: true }, 'Setup complete'),
     h(Text, null, ''),
     h(Text, null, `Wrote ${envPath} and initialized the SQLite database.`),
