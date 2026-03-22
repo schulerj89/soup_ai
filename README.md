@@ -47,7 +47,7 @@ npm run supervisor:once
 npm run task:register
 ```
 
-`npm run setup` writes `.env`, initializes the SQLite DB, and prompts for:
+`npm run setup` opens an interactive terminal setup wizard, writes `.env`, and initializes the SQLite DB. In non-interactive environments it falls back to the prompt-based setup flow. The setup process collects:
 
 - `OPENAI_API_KEY`
 - `TELEGRAM_BOT_TOKEN`
