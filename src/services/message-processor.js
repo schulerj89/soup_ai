@@ -2,6 +2,7 @@ import { ConversationManager } from './conversation-manager.js';
 import { ReplyQueue } from './message-processor/reply-queue.js';
 import { MessageCommandHandler } from './message-processor/command-handler.js';
 import { CodexTaskRunner } from './message-processor/codex-task-runner.js';
+import { DirectReplyHandler } from './message-processor/direct-reply-handler.js';
 
 function toPlannerItems(rows) {
   return rows
@@ -53,6 +54,13 @@ export class MessageProcessor {
       db,
       codexRunner,
       config,
+    });
+    this.directReplyHandler = new DirectReplyHandler({
+      db,
+      agent,
+      config,
+      conversationManager: this.conversationManager,
+      codexTaskRunner: this.codexTaskRunner,
     });
   }
 
@@ -171,70 +179,7 @@ export class MessageProcessor {
   }
 
   async processDirectReply({ job, message, text, plan }) {
-    const { session } = await this.conversationManager.getSession(message.chat_id);
-    const conversationState = this.conversationManager.getState(message.chat_id);
-    const replyText =
-      typeof this.agent.answerDirectly === 'function'
-        ? await this.agent.answerDirectly({
-            chatId: message.chat_id,
-            workspaceRoot: this.config.workspaceRoot,
-            messageText: text,
-            session,
-            responseOutline: plan.responseOutline,
-            planReason: plan.reason,
-            conversationMemory: conversationState.seedText,
-            conversationStateTool: async () => this.conversationManager.getState(message.chat_id),
-            resetConversationTool: async ({ reason }) => {
-              const { control } = await this.conversationManager.archiveAndReset(message.chat_id, {
-                reason,
-                preserveMemory: true,
-              });
-
-              return {
-                ok: true,
-                conversation_generation: control.conversationGeneration,
-                active_conversation_id: control.activeConversationId,
-                memory_preserved: true,
-              };
-            },
-          })
-        : ((await this.agent.handleMessage?.({
-            chatId: message.chat_id,
-            messageText: text,
-            session,
-            workspaceRoot: this.config.workspaceRoot,
-            codexTool: async (params) =>
-              this.codexTaskRunner.execute({
-                ...params,
-                sourceJobId: job.id,
-                sourceMessageId: message.id,
-              }),
-            codexStatusTool: async () => this.codexTaskRunner.codexRunner.getStatus(),
-            recentTasksTool: async () =>
-              this.db.listRecentTasks(10).map((task) => ({
-                id: task.id,
-                title: task.title,
-                status: task.status,
-                result_summary: task.result_summary,
-                created_at: task.created_at,
-                completed_at: task.completed_at,
-              })),
-            queueSnapshotTool: async () => this.db.getQueueSnapshot(),
-            conversationStateTool: async () => this.conversationManager.getState(message.chat_id),
-            resetConversationTool: async ({ reason }) => {
-              const { control } = await this.conversationManager.archiveAndReset(message.chat_id, {
-                reason,
-                preserveMemory: true,
-              });
-
-              return {
-                ok: true,
-                conversation_generation: control.conversationGeneration,
-                active_conversation_id: control.activeConversationId,
-                memory_preserved: true,
-              };
-            },
-          }))?.text ?? 'No response text returned.');
+    const replyText = await this.directReplyHandler.reply({ job, message, text, plan });
 
     this.replyQueue.queue({
       chatId: message.chat_id,
