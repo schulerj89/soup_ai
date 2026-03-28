@@ -54,8 +54,32 @@ export class MemorySummarizer {
     return snapshot.items.length > this.threshold;
   }
 
-  async summarizeSession(session) {
-    const snapshot = await session.getSnapshot();
+  async summarizeChat({ chatId, db, conversationManager }) {
+    const state = conversationManager.getState(chatId);
+    const rows = db.listConversation(chatId, this.threshold + this.keepRecentItems + 8);
+    const items = rows
+      .map((row) => {
+        const text = `${row.message_text ?? ''}`.trim();
+
+        if (!text) {
+          return null;
+        }
+
+        return {
+          role: row.direction === 'outbound' ? 'assistant' : 'user',
+          content: [
+            {
+              type: row.direction === 'outbound' ? 'output_text' : 'input_text',
+              text,
+            },
+          ],
+        };
+      })
+      .filter(Boolean);
+    const snapshot = {
+      summaryText: state.memorySummary,
+      items,
+    };
 
     if (!this.shouldSummarize(snapshot)) {
       return { summarized: false };
@@ -92,9 +116,18 @@ export class MemorySummarizer {
       return { summarized: false };
     }
 
-    await session.compact({
-      summaryText,
-      items: recentItems,
+    const durableFacts = {
+      ...state.durableFacts,
+      recent_open_tasks:
+        db.listRecentTasks(5)
+          .filter((task) => task.status === 'running' || task.status === 'partial')
+          .map((task) => `#${task.id} ${task.status} ${task.title}`)
+          .slice(0, 5),
+    };
+
+    conversationManager.updateMemory(chatId, {
+      memorySummary: summaryText,
+      durableFacts,
     });
 
     return {

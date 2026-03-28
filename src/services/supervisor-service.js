@@ -18,6 +18,7 @@ export class SupervisorService {
     config,
     memorySummarizer = null,
     audioTranscriber = null,
+    conversationManager = null,
     logger = console,
     timers = { setInterval, clearInterval, sleep },
   }) {
@@ -35,6 +36,7 @@ export class SupervisorService {
       codexRunner,
       config,
       memorySummarizer,
+      conversationManager,
       onAcknowledgementQueued: async () => {
         this.immediateSentMessages += await this.flushOutbound(1);
       },

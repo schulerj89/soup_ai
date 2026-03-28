@@ -29,11 +29,43 @@ export class SupervisorAgent {
     return "Got it. I'll start that now.";
   }
 
-  buildAgent({ codexTool, codexStatusTool, recentTasksTool, queueSnapshotTool }) {
+  buildConversationTools({ conversationStateTool, resetConversationTool }) {
+    const tools = [];
+
+    if (typeof conversationStateTool === 'function') {
+      tools.push(
+        this.toolFactory({
+          name: 'get_conversation_state',
+          description: 'Read the current active conversation state, summary, and recent reset metadata.',
+          parameters: z.object({}),
+          execute: async () => conversationStateTool(),
+        }),
+      );
+    }
+
+    if (typeof resetConversationTool === 'function') {
+      tools.push(
+        this.toolFactory({
+          name: 'archive_and_reset_conversation',
+          description:
+            'Archive the current active conversation and start a fresh one. Use when the user asks to reset or start fresh.',
+          parameters: z.object({
+            reason: z.string().min(1),
+          }),
+          execute: async (input) => resetConversationTool({ reason: input.reason }),
+        }),
+      );
+    }
+
+    return tools;
+  }
+
+  buildAgent({ codexTool, codexStatusTool, recentTasksTool, queueSnapshotTool, conversationStateTool, resetConversationTool }) {
     const tools = [
       this.webSearchToolFactory({
         searchContextSize: 'medium',
       }),
+      ...this.buildConversationTools({ conversationStateTool, resetConversationTool }),
     ];
 
     tools.push(
@@ -120,7 +152,16 @@ export class SupervisorAgent {
     }
   }
 
-  async answerDirectly({ chatId, workspaceRoot, messageText, session = null, responseOutline = null, planReason = null }) {
+  async answerDirectly({
+    chatId,
+    workspaceRoot,
+    messageText,
+    session = null,
+    responseOutline = null,
+    planReason = null,
+    conversationStateTool = null,
+    resetConversationTool = null,
+  }) {
     const result = await this.runImpl(
       this.agentFactory({
         name: 'Soup AI',
@@ -133,11 +174,13 @@ export class SupervisorAgent {
           'Keep the reply concise and factual.',
           'If a plan outline is provided, follow it unless the user message clearly requires a correction.',
           'Do not claim local work was performed.',
+          'If the user asks to reset, archive, or start fresh, use the conversation reset tool instead of pretending it happened.',
         ].join('\n'),
         tools: [
           this.webSearchToolFactory({
             searchContextSize: 'medium',
           }),
+          ...this.buildConversationTools({ conversationStateTool, resetConversationTool }),
         ],
       }),
       [
@@ -200,6 +243,8 @@ export class SupervisorAgent {
     codexStatusTool,
     recentTasksTool,
     queueSnapshotTool,
+    conversationStateTool,
+    resetConversationTool,
   }) {
     if (
       typeof codexTool !== 'function' ||
@@ -215,6 +260,8 @@ export class SupervisorAgent {
       codexStatusTool,
       recentTasksTool,
       queueSnapshotTool,
+      conversationStateTool,
+      resetConversationTool,
     });
 
     const result = await this.runImpl(agent, messageText, {

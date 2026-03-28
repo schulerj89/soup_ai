@@ -87,6 +87,21 @@ CREATE TABLE IF NOT EXISTS tool_runs (
   created_at TEXT NOT NULL,
   FOREIGN KEY(task_id) REFERENCES tasks(id)
 );
+
+CREATE TABLE IF NOT EXISTS conversation_archives (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  chat_id TEXT NOT NULL,
+  conversation_id TEXT,
+  generation INTEGER NOT NULL,
+  reason TEXT,
+  memory_summary TEXT,
+  durable_facts_json TEXT NOT NULL DEFAULT '{}',
+  created_at TEXT NOT NULL,
+  archived_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_conversation_archives_chat_archived
+  ON conversation_archives(chat_id, archived_at DESC);
 `;
 
 export class AppDb {
@@ -135,6 +150,66 @@ export class AppDb {
 
   clearAgentSessionState(chatId) {
     this.db.prepare('DELETE FROM app_state WHERE key = ?').run(`agent_session:${chatId}`);
+  }
+
+  getConversationControlState(chatId) {
+    return this.getState(`conversation_control:${chatId}`, null);
+  }
+
+  setConversationControlState(chatId, value) {
+    this.setState(`conversation_control:${chatId}`, value);
+  }
+
+  clearConversationControlState(chatId) {
+    this.db.prepare('DELETE FROM app_state WHERE key = ?').run(`conversation_control:${chatId}`);
+  }
+
+  archiveConversation({
+    chatId,
+    conversationId = null,
+    generation = 0,
+    reason = null,
+    memorySummary = null,
+    durableFacts = {},
+    createdAt = null,
+  }) {
+    const archivedAt = this.now();
+    const result = this.db
+      .prepare(
+        `INSERT INTO conversation_archives (
+           chat_id,
+           conversation_id,
+           generation,
+           reason,
+           memory_summary,
+           durable_facts_json,
+           created_at,
+           archived_at
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        `${chatId}`,
+        conversationId,
+        generation,
+        reason,
+        memorySummary,
+        toJson(durableFacts ?? {}),
+        createdAt ?? archivedAt,
+        archivedAt,
+      );
+
+    return this.db.prepare('SELECT * FROM conversation_archives WHERE id = ?').get(result.lastInsertRowid);
+  }
+
+  listConversationArchives(chatId, limit = 10) {
+    return this.db
+      .prepare(
+        `SELECT * FROM conversation_archives
+         WHERE chat_id = ?
+         ORDER BY archived_at DESC
+         LIMIT ?`,
+      )
+      .all(`${chatId}`, limit);
   }
 
   getCursor(key, fallback = 0) {
