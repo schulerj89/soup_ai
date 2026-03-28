@@ -8,9 +8,70 @@ import { createSilentLogger, createTestConfig, createTestDb } from '../support/u
 const fixturePath = path.join(process.cwd(), 'test', 'fixtures', 'sample-telegram-updates.json');
 const updates = JSON.parse(fs.readFileSync(fixturePath, 'utf8'));
 
+function createConversationManagerStub() {
+  let sequence = 1;
+  const state = {
+    activeConversationId: null,
+    conversationGeneration: 0,
+    memorySummary: null,
+    durableFacts: {},
+    lastResetAt: null,
+    lastResetReason: null,
+  };
+
+  return {
+    getState() {
+      return { ...state };
+    },
+    updateMemory(_chatId, { memorySummary = undefined, durableFacts = undefined } = {}) {
+      if (memorySummary !== undefined) {
+        state.memorySummary = memorySummary;
+      }
+
+      if (durableFacts !== undefined) {
+        state.durableFacts = durableFacts;
+      }
+
+      return { ...state };
+    },
+    async getSession() {
+      if (!state.activeConversationId) {
+        state.activeConversationId = `conv_${sequence++}`;
+      }
+
+      return {
+        control: { ...state },
+        session: {
+          async getSessionId() {
+            return state.activeConversationId;
+          },
+          async addItems() {},
+        },
+      };
+    },
+    async archiveAndReset(_chatId, { reason }) {
+      state.conversationGeneration += 1;
+      state.activeConversationId = `conv_${sequence++}`;
+      state.lastResetAt = '2026-03-28T00:00:00.000Z';
+      state.lastResetReason = reason;
+
+      return {
+        control: { ...state },
+        session: {
+          async getSessionId() {
+            return state.activeConversationId;
+          },
+          async addItems() {},
+        },
+      };
+    },
+  };
+}
+
 test('SupervisorService ingests updates, processes jobs, and flushes outbound replies', async () => {
   const db = createTestDb();
   const sent = [];
+  const conversationManager = createConversationManagerStub();
 
   const telegramClient = {
     getUpdates: async () => updates,
@@ -38,7 +99,7 @@ test('SupervisorService ingests updates, processes jobs, and flushes outbound re
   };
 
   const memorySummarizer = {
-    summarizeSession: async () => ({ summarized: false }),
+    summarizeChat: async () => ({ summarized: false }),
   };
 
   const codexRunner = {
@@ -53,6 +114,7 @@ test('SupervisorService ingests updates, processes jobs, and flushes outbound re
     codexRunner,
     config: createTestConfig(),
     memorySummarizer,
+    conversationManager,
     logger: createSilentLogger(),
   });
 
@@ -100,6 +162,7 @@ test('SupervisorService skips when another active lease is present', async () =>
         run: async () => ({ exitCode: 0, stdout: '', stderr: '', timedOut: false }),
       },
       config: createTestConfig(),
+      conversationManager: createConversationManagerStub(),
       logger: createSilentLogger(),
     });
 
@@ -143,6 +206,7 @@ test('SupervisorService heartbeat renews the lease during long work', async () =
         supervisorLeaseTtlMs: 80,
         supervisorLeaseHeartbeatMs: 20,
       }),
+      conversationManager: createConversationManagerStub(),
       logger: createSilentLogger(),
     });
 
@@ -208,6 +272,7 @@ test('SupervisorService fails abandoned running jobs and tasks after acquiring t
         run: async () => ({ exitCode: 0, stdout: '', stderr: '', timedOut: false }),
       },
       config: createTestConfig(),
+      conversationManager: createConversationManagerStub(),
       logger: createSilentLogger(),
     });
 
@@ -292,6 +357,7 @@ test('SupervisorService kills an abandoned tracked Codex process before failing 
         },
       },
       config: createTestConfig(),
+      conversationManager: createConversationManagerStub(),
       logger: createSilentLogger(),
     });
 
@@ -378,6 +444,7 @@ test('SupervisorService transcribes Telegram voice messages before processing th
       run: async () => ({ exitCode: 0, stdout: '', stderr: '', timedOut: false }),
     },
     config: createTestConfig(),
+    conversationManager: createConversationManagerStub(),
     logger: createSilentLogger(),
   });
 

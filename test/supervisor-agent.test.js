@@ -34,13 +34,22 @@ test('SupervisorAgent builds a Soup AI agent and returns final output text', asy
     codexStatusTool: async () => ({ ok: true }),
     recentTasksTool: async () => [],
     queueSnapshotTool: async () => ({ pendingJobs: 0 }),
+    conversationStateTool: async () => ({ activeConversationId: 'conv_1' }),
+    resetConversationTool: async () => ({ ok: true }),
   });
 
   assert.equal(result.text, 'Finished the task.');
   assert.equal(agentConfig.name, 'Soup AI');
   assert.deepEqual(
     toolDefinitions.map((entry) => entry.name),
-    ['run_codex_exec', 'get_codex_status', 'list_recent_tasks', 'get_supervisor_snapshot'],
+    [
+      'get_conversation_state',
+      'archive_and_reset_conversation',
+      'run_codex_exec',
+      'get_codex_status',
+      'list_recent_tasks',
+      'get_supervisor_snapshot',
+    ],
   );
   assert.equal(agentConfig.tools[0].name, 'web_search');
   assert.deepEqual(hostedToolDefinitions, [{ searchContextSize: 'medium' }]);
@@ -95,12 +104,17 @@ test('SupervisorAgent falls back to the default acknowledgement when the model c
 test('SupervisorAgent answerDirectly includes hosted web search for current questions', async () => {
   const agentConfigs = [];
   const hostedToolDefinitions = [];
+  const toolDefinitions = [];
   let runOptions = null;
   const agent = new SupervisorAgent({
     model: 'gpt-4.1-mini',
     agentFactory: (options) => {
       agentConfigs.push(options);
       return { options };
+    },
+    toolFactory: (options) => {
+      toolDefinitions.push(options);
+      return options;
     },
     webSearchToolFactory: (options) => {
       hostedToolDefinitions.push(options);
@@ -118,10 +132,16 @@ test('SupervisorAgent answerDirectly includes hosted web search for current ques
     chatId: '123',
     workspaceRoot: 'C:/Users/joshs/Projects',
     messageText: 'What happened today?',
+    conversationStateTool: async () => ({ activeConversationId: 'conv_1' }),
+    resetConversationTool: async () => ({ ok: true }),
   });
 
   assert.equal(result, 'Current answer.');
   assert.equal(agentConfigs[0].tools[0].name, 'web_search');
+  assert.deepEqual(
+    toolDefinitions.map((entry) => entry.name),
+    ['get_conversation_state', 'archive_and_reset_conversation'],
+  );
   assert.deepEqual(hostedToolDefinitions, [{ searchContextSize: 'medium' }]);
   assert.equal(runOptions.maxTurns, 3);
 });

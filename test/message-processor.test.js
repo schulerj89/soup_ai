@@ -5,6 +5,66 @@ import { createTestConfig, createTestDb, listOutboundMessages, queueInboundJob }
 
 const config = createTestConfig({ codexMaxOutputChars: 4000 });
 
+function createConversationManagerStub() {
+  let sequence = 1;
+  const state = {
+    activeConversationId: null,
+    conversationGeneration: 0,
+    memorySummary: null,
+    durableFacts: {},
+    lastResetAt: null,
+    lastResetReason: null,
+  };
+
+  return {
+    getState() {
+      return { ...state };
+    },
+    updateMemory(_chatId, { memorySummary = undefined, durableFacts = undefined } = {}) {
+      if (memorySummary !== undefined) {
+        state.memorySummary = memorySummary;
+      }
+
+      if (durableFacts !== undefined) {
+        state.durableFacts = durableFacts;
+      }
+
+      return { ...state };
+    },
+    async getSession() {
+      if (!state.activeConversationId) {
+        state.activeConversationId = `conv_${sequence++}`;
+      }
+
+      return {
+        control: { ...state },
+        session: {
+          async getSessionId() {
+            return state.activeConversationId;
+          },
+          async addItems() {},
+        },
+      };
+    },
+    async archiveAndReset(_chatId, { reason }) {
+      state.conversationGeneration += 1;
+      state.activeConversationId = `conv_${sequence++}`;
+      state.lastResetAt = '2026-03-28T00:00:00.000Z';
+      state.lastResetReason = reason;
+
+      return {
+        control: { ...state },
+        session: {
+          async getSessionId() {
+            return state.activeConversationId;
+          },
+          async addItems() {},
+        },
+      };
+    },
+  };
+}
+
 test('MessageProcessor lets the supervisor agent choose Codex tool usage', async () => {
   const db = createTestDb();
 
@@ -70,6 +130,7 @@ test('MessageProcessor lets the supervisor agent choose Codex tool usage', async
         getStatus: async () => ({ ok: true }),
       },
       config,
+      conversationManager: createConversationManagerStub(),
     });
 
     await processor.processJob(job);
@@ -83,15 +144,6 @@ test('MessageProcessor lets the supervisor agent choose Codex tool usage', async
     assert.match(codexInput.prompt, /Verification:\n- npm test/);
     assert.deepEqual(outbound, ["Got it. I'll start that now.", 'Changed files and ran tests.']);
 
-    const sessionState = db.getAgentSessionState('chat-1');
-    assert.equal(sessionState.items.length, 2);
-    assert.equal(sessionState.items[0].role, 'user');
-    assert.equal(
-      sessionState.items[0].content[0].text,
-      'Please update the repo, run tests, commit, and push the changes.',
-    );
-    assert.equal(sessionState.items[1].role, 'assistant');
-    assert.equal(sessionState.items[1].content[0].text, 'Changed files and ran tests.');
   } finally {
     db.close();
   }
@@ -133,6 +185,7 @@ test('MessageProcessor handles built-in slash commands without invoking planning
         getStatus: async () => ({ ok: true }),
       },
       config,
+      conversationManager: createConversationManagerStub(),
     });
 
     await processor.processJob(job);
@@ -141,7 +194,20 @@ test('MessageProcessor handles built-in slash commands without invoking planning
     const processed = db.getMessageById(inbound.id);
 
     assert.equal(plannerCalls, 0);
-    assert.deepEqual(outbound, [['Commands:', '/help', '/health', '/tasks', '', 'Any other message is handled by the AI supervisor.'].join('\n')]);
+    assert.deepEqual(
+      outbound,
+      [[
+        'Commands:',
+        '/help',
+        '/health',
+        '/status',
+        '/tasks',
+        '/memory',
+        '/reset',
+        '',
+        'Any other message is handled by the AI supervisor.',
+      ].join('\n')],
+    );
     assert.equal(processed.status, 'processed');
   } finally {
     db.close();
@@ -161,6 +227,7 @@ test('MessageProcessor still uses the supervisor agent for informational request
 
     let agentCalls = 0;
     let codexCalls = 0;
+    const conversationManager = createConversationManagerStub();
 
     const processor = new MessageProcessor({
       db,
@@ -195,6 +262,7 @@ test('MessageProcessor still uses the supervisor agent for informational request
         getStatus: async () => ({ ok: true }),
       },
       config,
+      conversationManager,
     });
 
     await processor.processJob(job);
@@ -205,12 +273,7 @@ test('MessageProcessor still uses the supervisor agent for informational request
     assert.equal(codexCalls, 0);
     assert.deepEqual(outbound, ['Informational answer']);
 
-    const sessionState = db.getAgentSessionState('chat-2');
-    assert.equal(sessionState.items.length, 2);
-    assert.equal(sessionState.items[0].role, 'user');
-    assert.equal(sessionState.items[0].content[0].text, 'What can GitHub CLI show me about contributions?');
-    assert.equal(sessionState.items[1].role, 'assistant');
-    assert.equal(sessionState.items[1].content[0].text, 'Informational answer');
+    assert.equal(conversationManager.getState('chat-2').activeConversationId, 'conv_1');
   } finally {
     db.close();
   }
@@ -276,6 +339,7 @@ test('MessageProcessor reports acknowledgement-only Codex runs as incomplete whe
         getStatus: async () => ({ ok: true }),
       },
       config,
+      conversationManager: createConversationManagerStub(),
     });
 
     await processor.processJob(job);
@@ -345,6 +409,7 @@ test('MessageProcessor reports partial Codex runs when changes were made but the
         }),
       },
       config,
+      conversationManager: createConversationManagerStub(),
     });
 
     await processor.processJob(job);
@@ -419,6 +484,7 @@ test('MessageProcessor keeps follow-up-required Codex runs out of completed stat
         }),
       },
       config,
+      conversationManager: createConversationManagerStub(),
     });
 
     await processor.processJob(job);
@@ -495,6 +561,7 @@ test('MessageProcessor renders exact file contents explicitly for Codex', async 
         },
       },
       config,
+      conversationManager: createConversationManagerStub(),
     });
 
     await processor.processJob(job);
@@ -505,6 +572,42 @@ test('MessageProcessor renders exact file contents explicitly for Codex', async 
     assert.match(renderedPrompt.prompt, /Constraints:\n- Do not add any extra text\./);
     assert.match(renderedPrompt.prompt, /Final response requirements:/);
     assert.match(renderedPrompt.prompt, /CODEX_RESULT_JSON:/);
+  } finally {
+    db.close();
+  }
+});
+
+test('MessageProcessor handles /reset through the conversation manager', async () => {
+  const db = createTestDb();
+  const conversationManager = createConversationManagerStub();
+
+  try {
+    const { job } = queueInboundJob(db, {
+      updateId: 8,
+      telegramMessageId: 18,
+      chatId: 'chat-reset',
+      text: '/reset',
+    });
+
+    const processor = new MessageProcessor({
+      db,
+      agent: {},
+      executionPlanner: null,
+      codexRunner: {
+        run: async () => {
+          throw new Error('codex should not run for /reset');
+        },
+      },
+      config,
+      conversationManager,
+    });
+
+    await processor.processJob(job);
+
+    const outbound = listOutboundMessages(db);
+    assert.match(outbound[0], /Started a fresh AI conversation\./);
+    assert.match(outbound[0], /conversationGeneration: 1/);
+    assert.equal(conversationManager.getState('chat-reset').conversationGeneration, 1);
   } finally {
     db.close();
   }

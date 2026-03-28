@@ -101,3 +101,39 @@ test('AppDb can persist partial task outcomes separately from failed tasks', () 
     db.close();
   }
 });
+
+test('AppDb stores conversation control state and archives resets', () => {
+  const db = new AppDb({ dbPath: ':memory:' });
+
+  try {
+    db.setConversationControlState('chat-1', {
+      activeConversationId: 'conv_123',
+      conversationGeneration: 2,
+      memorySummary: 'Keep answers concise.',
+      durableFacts: { preferences: ['concise replies'] },
+    });
+
+    const state = db.getConversationControlState('chat-1');
+    assert.equal(state.activeConversationId, 'conv_123');
+    assert.equal(state.conversationGeneration, 2);
+    assert.deepEqual(state.durableFacts, { preferences: ['concise replies'] });
+
+    db.archiveConversation({
+      chatId: 'chat-1',
+      conversationId: 'conv_123',
+      generation: 2,
+      reason: 'Manual reset',
+      memorySummary: 'Keep answers concise.',
+      durableFacts: { preferences: ['concise replies'] },
+      createdAt: '2026-03-01T00:00:00.000Z',
+    });
+
+    const archives = db.listConversationArchives('chat-1', 5);
+    assert.equal(archives.length, 1);
+    assert.equal(archives[0].conversation_id, 'conv_123');
+    assert.equal(archives[0].generation, 2);
+    assert.equal(archives[0].reason, 'Manual reset');
+  } finally {
+    db.close();
+  }
+});

@@ -1,0 +1,74 @@
+[
+  {
+    "id": "task-01",
+    "title": "Add conversation-state task tracker",
+    "description": "Create a temporary JSON tracker in the repo root that lists all implementation tasks with descriptions and statuses. Update it as work progresses.",
+    "status": "completed"
+  },
+  {
+    "id": "task-02",
+    "title": "Inspect current conversation flow and SDK support",
+    "description": "Verify the current SQLite-backed session flow and confirm the installed OpenAI Agents SDK supports OpenAI-managed conversations.",
+    "status": "completed"
+  },
+  {
+    "id": "task-03",
+    "title": "Add SQLite conversation control state",
+    "description": "Extend the database schema and DB accessors to store active OpenAI conversation metadata, curated memory, and archive records.",
+    "status": "completed"
+  },
+  {
+    "id": "task-04",
+    "title": "Add conversation manager service",
+    "description": "Implement a service that creates, loads, archives, and resets OpenAI conversations while keeping SQLite as the source of truth for control metadata.",
+    "status": "completed"
+  },
+  {
+    "id": "task-05",
+    "title": "Add phone-usable conversation commands",
+    "description": "Add slash commands such as /reset and /memory so conversation lifecycle can be controlled from Telegram without local shell access.",
+    "status": "completed"
+  },
+  {
+    "id": "task-06",
+    "title": "Expose reset and memory tools to the agent",
+    "description": "Add agent tools for querying conversation state and archiving/resetting the active conversation through the conversation manager.",
+    "status": "completed"
+  },
+  {
+    "id": "task-07",
+    "title": "Switch direct replies to OpenAI conversation-backed sessions",
+    "description": "Replace SQLite session usage for direct reply turns with OpenAIConversationsSession, seeded and tracked by the conversation manager.",
+    "status": "completed"
+  },
+  {
+    "id": "task-08",
+    "title": "Repurpose memory summarization",
+    "description": "Move summarizer output into curated memory fields used for reseeding instead of treating SQLite session items as the main conversation state.",
+    "status": "completed"
+  },
+  {
+    "id": "task-09",
+    "title": "Add automated tests",
+    "description": "Add and update tests for DB state, conversation manager behavior, slash commands, and message processing with OpenAI conversation-backed sessions.",
+    "status": "completed"
+  },
+  {
+    "id": "task-10",
+    "title": "Run full test suite",
+    "description": "Run the repository test suite and fix any regressions introduced by the conversation-state changes.",
+    "status": "completed"
+  },
+  {
+    "id": "task-11",
+    "title": "Commit checkpoint changes",
+    "description": "Create git commits at meaningful implementation checkpoints so progress is durable and reviewable.",
+    "status": "completed"
+  },
+  {
+    "id": "task-12",
+    "title": "Push checkpoint commits",
+    "description": "Push the checkpoint commits to the configured remote so the branch reflects the implementation progress.",
+    "status": "pending"
+  }
+]
