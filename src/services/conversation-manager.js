@@ -152,7 +152,7 @@ export class ConversationManager {
       lastUsedAt: null,
       lastResetAt: new Date().toISOString(),
       lastResetReason: reason,
-      memorySummary: preserveMemory ? control.memorySummary : null,
+      memorySummary: null,
       durableFacts: preserveMemory ? control.durableFacts : {},
     };
 

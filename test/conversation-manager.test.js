@@ -75,6 +75,8 @@ test('ConversationManager archives the current conversation and creates a new on
 
     assert.equal(control.activeConversationId, 'conv_2');
     assert.equal(control.conversationGeneration, 1);
+    assert.equal(control.memorySummary, null);
+    assert.deepEqual(control.durableFacts, { open_tasks: ['Implement /reset'] });
     assert.equal(db.listConversationArchives('chat-1', 5).length, 1);
     assert.equal(db.listConversationArchives('chat-1', 5)[0].conversation_id, 'conv_1');
     assert.equal(fake.sessions[1].addedItems.length, 0);

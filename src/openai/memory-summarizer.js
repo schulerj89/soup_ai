@@ -56,7 +56,10 @@ export class MemorySummarizer {
 
   async summarizeChat({ chatId, db, conversationManager }) {
     const state = conversationManager.getState(chatId);
-    const rows = db.listConversation(chatId, this.threshold + this.keepRecentItems + 8);
+    const rows = db
+      .listConversation(chatId, 200)
+      .filter((row) => !state.currentStartedAt || row.created_at >= state.currentStartedAt)
+      .slice(-(this.threshold + this.keepRecentItems + 8));
     const items = rows
       .map((row) => {
         const text = `${row.message_text ?? ''}`.trim();
@@ -119,7 +122,9 @@ export class MemorySummarizer {
     const durableFacts = {
       ...state.durableFacts,
       recent_open_tasks:
-        db.listRecentTasks(5)
+        db
+          .listRecentTasks(20)
+          .filter((task) => (!state.currentStartedAt || task.created_at >= state.currentStartedAt))
           .filter((task) => task.status === 'running' || task.status === 'partial')
           .map((task) => `#${task.id} ${task.status} ${task.title}`)
           .slice(0, 5),
