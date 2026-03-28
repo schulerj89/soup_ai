@@ -6,7 +6,6 @@ function normalizeObject(value) {
 
 function normalizeControlState(chatId, stored = null) {
   const state = stored && typeof stored === 'object' ? stored : {};
-  const now = new Date().toISOString();
 
   return {
     chatId: `${chatId}`,
@@ -14,7 +13,7 @@ function normalizeControlState(chatId, stored = null) {
     conversationGeneration: Number.isInteger(state.conversationGeneration) ? state.conversationGeneration : 0,
     memorySummary: typeof state.memorySummary === 'string' ? state.memorySummary : null,
     durableFacts: normalizeObject(state.durableFacts),
-    currentStartedAt: typeof state.currentStartedAt === 'string' ? state.currentStartedAt : now,
+    currentStartedAt: typeof state.currentStartedAt === 'string' ? state.currentStartedAt : null,
     lastUsedAt: typeof state.lastUsedAt === 'string' ? state.lastUsedAt : null,
     lastResetAt: typeof state.lastResetAt === 'string' ? state.lastResetAt : null,
     lastResetReason: typeof state.lastResetReason === 'string' ? state.lastResetReason : null,
