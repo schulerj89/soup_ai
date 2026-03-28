@@ -159,6 +159,7 @@ export class SupervisorAgent {
     session = null,
     responseOutline = null,
     planReason = null,
+    conversationMemory = null,
     conversationStateTool = null,
     resetConversationTool = null,
   }) {
@@ -185,6 +186,7 @@ export class SupervisorAgent {
       }),
       [
         `User message:\n${messageText}`,
+        conversationMemory ? `Curated conversation memory:\n${conversationMemory}` : null,
         responseOutline ? `Planned response outline:\n${responseOutline}` : null,
         planReason ? `Planner reason:\n${planReason}` : null,
       ]

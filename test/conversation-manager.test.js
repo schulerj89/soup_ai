@@ -46,8 +46,7 @@ test('ConversationManager creates and tracks a seeded active conversation', asyn
     assert.equal(await session.getSessionId(), 'conv_1');
     assert.equal(control.activeConversationId, 'conv_1');
     assert.equal(control.conversationGeneration, 0);
-    assert.equal(fake.sessions[0].addedItems.length, 1);
-    assert.equal(fake.sessions[0].addedItems[0].role, 'system');
+    assert.equal(fake.sessions[0].addedItems.length, 0);
   } finally {
     db.close();
   }
@@ -78,7 +77,7 @@ test('ConversationManager archives the current conversation and creates a new on
     assert.equal(control.conversationGeneration, 1);
     assert.equal(db.listConversationArchives('chat-1', 5).length, 1);
     assert.equal(db.listConversationArchives('chat-1', 5)[0].conversation_id, 'conv_1');
-    assert.equal(fake.sessions[1].addedItems.length, 1);
+    assert.equal(fake.sessions[1].addedItems.length, 0);
   } finally {
     db.close();
   }

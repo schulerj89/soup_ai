@@ -1,4 +1,4 @@
-import { OpenAIConversationsSession, system } from '@openai/agents';
+import { OpenAIConversationsSession } from '@openai/agents';
 
 function normalizeObject(value) {
   return value && typeof value === 'object' && !Array.isArray(value) ? { ...value } : {};
@@ -73,24 +73,6 @@ function buildSeedText({ memorySummary, durableFacts }) {
   return sections.join('\n\n');
 }
 
-function buildSeedItems(control) {
-  const seedText = buildSeedText(control);
-
-  if (!seedText) {
-    return [];
-  }
-
-  return [
-    system(
-      [
-        'Carry forward this curated memory into the new conversation.',
-        'Treat it as high-level context, not as quoted user wording.',
-        seedText,
-      ].join('\n\n'),
-    ),
-  ];
-}
-
 export class ConversationManager {
   constructor({
     db,
@@ -125,11 +107,6 @@ export class ConversationManager {
       currentStartedAt: new Date().toISOString(),
       lastUsedAt: new Date().toISOString(),
     };
-    const seedItems = buildSeedItems(nextControl);
-
-    if (seedItems.length > 0) {
-      await session.addItems(seedItems);
-    }
 
     return {
       session,

@@ -172,6 +172,7 @@ export class MessageProcessor {
 
   async processDirectReply({ job, message, text, plan }) {
     const { session } = await this.conversationManager.getSession(message.chat_id);
+    const conversationState = this.conversationManager.getState(message.chat_id);
     const replyText =
       typeof this.agent.answerDirectly === 'function'
         ? await this.agent.answerDirectly({
@@ -181,6 +182,7 @@ export class MessageProcessor {
             session,
             responseOutline: plan.responseOutline,
             planReason: plan.reason,
+            conversationMemory: conversationState.seedText,
             conversationStateTool: async () => this.conversationManager.getState(message.chat_id),
             resetConversationTool: async ({ reason }) => {
               const { control } = await this.conversationManager.archiveAndReset(message.chat_id, {
