@@ -69,6 +69,6 @@
     "id": "task-12",
     "title": "Push checkpoint commits",
     "description": "Push the checkpoint commits to the configured remote so the branch reflects the implementation progress.",
-    "status": "pending"
+    "status": "completed"
   }
 ]
