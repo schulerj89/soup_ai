@@ -4,6 +4,7 @@ import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { CodexCommandBuilder } from './codex-command-builder.js';
+import { CodexProcessRunner } from './codex-process-runner.js';
 import {
   extractFinalAgentMessage,
   hasMeaningfulStructuredWork,
@@ -77,6 +78,11 @@ export class CodexRunner {
     });
     this.statusReader = new CodexStatusReader({
       codexHome: this.codexHome,
+    });
+    this.processRunner = new CodexProcessRunner({
+      spawnImpl: this.spawnImpl,
+      timeoutMs: this.timeoutMs,
+      killProcessTree: (pid) => this.killProcessTree(pid),
     });
   }
 
@@ -174,83 +180,6 @@ export class CodexRunner {
     const outputLastMessagePath = path.join(tempDir, `codex-output-${randomUUID()}.json`);
     fs.writeFileSync(outputSchemaPath, JSON.stringify(CODEX_REPORT_SCHEMA, null, 2), 'utf8');
 
-    const execute = (args) => {
-      const spawnSpec = this.buildSpawnSpec(args);
-
-      return new Promise((resolve, reject) => {
-        const child = this.spawnImpl(spawnSpec.command, spawnSpec.args, {
-          cwd: safeDirectory,
-          shell: spawnSpec.shell,
-          windowsHide: true,
-        });
-
-        let stdout = '';
-        let stderr = '';
-        let settled = false;
-        let timedOut = false;
-        let finalized = false;
-
-        const finalizeExit = async () => {
-          if (finalized) {
-            return;
-          }
-
-          finalized = true;
-
-          if (onExit) {
-            await onExit({ pid: child.pid, timedOut });
-          }
-        };
-
-        if (onSpawn) {
-          Promise.resolve(onSpawn({ pid: child.pid })).catch(() => {});
-        }
-
-        const timeout = setTimeout(() => {
-          timedOut = true;
-          void this.killProcessTree(child.pid).catch(() => {});
-        }, this.timeoutMs);
-
-        child.stdout.on('data', (chunk) => {
-          stdout += chunk.toString();
-        });
-
-        child.stderr.on('data', (chunk) => {
-          stderr += chunk.toString();
-        });
-
-        child.on('error', (error) => {
-          if (settled) {
-            return;
-          }
-
-          settled = true;
-          clearTimeout(timeout);
-          void finalizeExit().finally(() => reject(error));
-        });
-
-        child.on('close', (exitCode, signal) => {
-          if (settled) {
-            return;
-          }
-
-          settled = true;
-          clearTimeout(timeout);
-          void finalizeExit().finally(() =>
-            resolve({
-              command: [spawnSpec.command, ...spawnSpec.args].join(' '),
-              workingDirectory: safeDirectory,
-              stdout,
-              stderr,
-              exitCode: exitCode ?? (timedOut ? -1 : null),
-              signal,
-              timedOut,
-            }),
-          );
-        });
-      });
-    };
-
     try {
       const initialArgs = this.buildArgs({
         prompt,
@@ -258,7 +187,12 @@ export class CodexRunner {
         outputSchemaPath,
         outputLastMessagePath,
       });
-      const initialResult = await execute(initialArgs);
+      const initialResult = await this.processRunner.execute({
+        spawnSpec: this.buildSpawnSpec(initialArgs),
+        workingDirectory: safeDirectory,
+        onSpawn,
+        onExit,
+      });
 
       let finalResult = initialResult;
 
@@ -274,7 +208,12 @@ export class CodexRunner {
           outputSchemaPath,
           outputLastMessagePath,
         });
-        const fallbackResult = await execute(fallbackArgs);
+        const fallbackResult = await this.processRunner.execute({
+          spawnSpec: this.buildSpawnSpec(fallbackArgs),
+          workingDirectory: safeDirectory,
+          onSpawn,
+          onExit,
+        });
 
         finalResult = {
           ...fallbackResult,

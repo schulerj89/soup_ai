@@ -25,12 +25,12 @@
     {
       "id": "process_runner",
       "title": "Extract child-process execution and timeout lifecycle responsibilities",
-      "status": "in_progress"
+      "status": "completed"
     },
     {
       "id": "finalize",
       "title": "Run full tests, remove temporary tracker, and finalize the refactor",
-      "status": "pending"
+      "status": "in_progress"
     }
   ]
 }
