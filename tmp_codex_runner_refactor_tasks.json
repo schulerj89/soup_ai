@@ -20,12 +20,12 @@
     {
       "id": "result_parser",
       "title": "Extract Codex output and structured report parsing responsibilities",
-      "status": "in_progress"
+      "status": "completed"
     },
     {
       "id": "process_runner",
       "title": "Extract child-process execution and timeout lifecycle responsibilities",
-      "status": "pending"
+      "status": "in_progress"
     },
     {
       "id": "finalize",
