@@ -4,6 +4,7 @@ import path from 'node:path';
 import readline from 'node:readline';
 import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
+import { CodexCommandBuilder } from './codex-command-builder.js';
 
 const CODEX_REPORT_SCHEMA = {
   type: 'object',
@@ -121,19 +122,6 @@ function walkFiles(dirPath, matcher, files = []) {
   }
 
   return files;
-}
-
-function pathEnvValue() {
-  const key = Object.keys(process.env).find((name) => name.toLowerCase() === 'path');
-  return key ? process.env[key] : '';
-}
-
-function quoteForCmd(value) {
-  if (/^[A-Za-z0-9_./:=+-]+$/.test(value)) {
-    return value;
-  }
-
-  return `"${`${value}`.replace(/"/g, '""')}"`;
 }
 
 function safeJsonParse(value) {
@@ -261,6 +249,11 @@ export class CodexRunner {
     this.codexHome = codexHome ?? path.join(os.homedir(), '.codex');
     this.spawnImpl = spawnImpl;
     this.killProcessTreeImpl = killProcessTreeImpl;
+    this.commandBuilder = new CodexCommandBuilder({
+      codexBin,
+      codexModel,
+      codexEnableSearch,
+    });
   }
 
   assertAllowedDirectory(targetDirectory) {
@@ -275,77 +268,21 @@ export class CodexRunner {
   }
 
   buildArgs({ prompt, workingDirectory, modelOverride = this.codexModel, outputSchemaPath, outputLastMessagePath }) {
-    const args = [];
-
-    if (this.codexEnableSearch) {
-      args.push('--search');
-    }
-
-    args.push('exec', '--dangerously-bypass-approvals-and-sandbox', '-C', workingDirectory);
-
-    if (outputSchemaPath) {
-      args.push('--output-schema', outputSchemaPath);
-    }
-
-    if (outputLastMessagePath) {
-      args.push('-o', outputLastMessagePath);
-    }
-
-    if (modelOverride) {
-      args.push('-m', modelOverride);
-    }
-
-    args.push('--json', '--skip-git-repo-check');
-    args.push(prompt);
-    return args;
+    return this.commandBuilder.buildArgs({
+      prompt,
+      workingDirectory,
+      modelOverride,
+      outputSchemaPath,
+      outputLastMessagePath,
+    });
   }
 
   resolveSpawnCommand() {
-    if (path.isAbsolute(this.codexBin) || this.codexBin.includes(path.sep)) {
-      return this.codexBin;
-    }
-
-    if (process.platform !== 'win32') {
-      return this.codexBin;
-    }
-
-    const candidateNames = path.extname(this.codexBin)
-      ? [this.codexBin]
-      : [`${this.codexBin}.cmd`, `${this.codexBin}.exe`, `${this.codexBin}.bat`, this.codexBin];
-
-    const candidateDirectories = [
-      ...`${pathEnvValue() ?? ''}`.split(path.delimiter).filter(Boolean),
-      path.dirname(process.execPath),
-      process.env.ProgramFiles ? path.join(process.env.ProgramFiles, 'nodejs') : null,
-      process.env.APPDATA ? path.join(process.env.APPDATA, 'npm') : null,
-    ].filter(Boolean);
-
-    for (const directory of candidateDirectories) {
-      for (const candidateName of candidateNames) {
-        const candidatePath = path.join(directory, candidateName);
-
-        if (fs.existsSync(candidatePath)) {
-          return candidatePath;
-        }
-      }
-    }
-
-    return this.codexBin;
+    return this.commandBuilder.resolveSpawnCommand();
   }
 
   buildSpawnSpec(args) {
-    const command = this.resolveSpawnCommand();
-    const extension = path.extname(command).toLowerCase();
-
-    if (process.platform === 'win32' && (extension === '.cmd' || extension === '.bat')) {
-      return {
-        command: [quoteForCmd(command), ...args.map(quoteForCmd)].join(' '),
-        args: [],
-        shell: true,
-      };
-    }
-
-    return { command, args, shell: false };
+    return this.commandBuilder.buildSpawnSpec(args);
   }
 
   readConfigSummary() {
