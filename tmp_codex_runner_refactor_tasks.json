@@ -15,12 +15,12 @@
     {
       "id": "status_reader",
       "title": "Extract Codex config and telemetry status reading responsibilities",
-      "status": "in_progress"
+      "status": "completed"
     },
     {
       "id": "result_parser",
       "title": "Extract Codex output and structured report parsing responsibilities",
-      "status": "pending"
+      "status": "in_progress"
     },
     {
       "id": "process_runner",
