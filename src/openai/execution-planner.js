@@ -128,6 +128,8 @@ export class ExecutionPlanner {
         'Valid actions are "answer_directly" and "run_codex".',
         'Use "answer_directly" for feasibility questions, product questions, brainstorming, clarification, or advice.',
         'Use "run_codex" only when the user clearly wants local repo or machine work performed.',
+        'Treat local computer-assistant requests inside the workspace root as machine work, even when they are phrased casually.',
+        'Requests to create or edit local config files like `.env`, `.json`, scripts, docs, or source files should normally use "run_codex".',
         'If you choose "run_codex", extract the requested work into a structured execution object.',
         'Default the working directory to the provided workspace root.',
         'Use the provided project root only when the user explicitly mentions soup_ai, the current repo, or clearly wants work inside this repository.',

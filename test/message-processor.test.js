@@ -138,6 +138,10 @@ test('MessageProcessor lets the supervisor agent choose Codex tool usage', async
     const outbound = listOutboundMessages(db);
 
     assert.equal(codexInput.workingDirectory, 'C:/Users/joshs/Projects/soup_ai');
+    assert.match(
+      codexInput.prompt,
+      /Treat routine local file and config work as allowed, including careful edits to files like `\.env` within that directory\./,
+    );
     assert.match(codexInput.prompt, /Task: Apply repo update/);
     assert.match(codexInput.prompt, /Goal:\nUpdate the repo, run tests, commit, and push the changes\./);
     assert.match(codexInput.prompt, /Target paths:\n- src\/example\.js/);
@@ -567,6 +571,10 @@ test('MessageProcessor renders exact file contents explicitly for Codex', async 
     await processor.processJob(job);
 
     assert.equal(renderedPrompt.workingDirectory, 'C:/Users/joshs/Projects/soup_ai');
+    assert.match(
+      renderedPrompt.prompt,
+      /Preserve unrelated existing values when editing config files, and do not expose secret values in the final response unless the user explicitly asked for them\./,
+    );
     assert.match(renderedPrompt.prompt, /Path: telegram_codex_e2e\/readme\.md/);
     assert.match(renderedPrompt.prompt, /Content:\ntelegram smoke test/);
     assert.match(renderedPrompt.prompt, /Constraints:\n- Do not add any extra text\./);

@@ -60,6 +60,11 @@ export function inferTaskTitle(text) {
 export function buildCodexExecutionPrompt({ taskTitle, executionPlan }) {
   const lines = [];
 
+  lines.push('You are operating as the owner\'s local computer assistant inside the approved working directory.');
+  lines.push('Treat routine local file and config work as allowed, including careful edits to files like `.env` within that directory.');
+  lines.push('Preserve unrelated existing values when editing config files, and do not expose secret values in the final response unless the user explicitly asked for them.');
+  lines.push('');
+
   if (taskTitle) {
     lines.push(`Task: ${taskTitle}`);
     lines.push('');
