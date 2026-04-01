@@ -68,8 +68,18 @@ export class MessageCommandHandler {
         const conversationState = this.conversationManager?.getState(message.chat_id);
         const summary = `${conversationState?.memorySummary ?? ''}`.trim();
         const durableFacts = conversationState?.durableFacts ?? {};
+        const durableProfile = conversationState?.durableProfile ?? {};
+        const recentNotes = conversationState?.recentNotes ?? [];
         const durableFactsText =
           Object.keys(durableFacts).length > 0 ? JSON.stringify(durableFacts, null, 2) : '(none)';
+        const durableProfileText =
+          Object.keys(durableProfile).length > 0 ? JSON.stringify(durableProfile, null, 2) : '(none)';
+        const recentNotesText =
+          recentNotes.length > 0
+            ? recentNotes
+                .map((note) => `- ${note.title}: ${note.body}`)
+                .join('\n')
+            : '(none)';
 
         this.replyQueue.queue({
           chatId: message.chat_id,
@@ -79,6 +89,10 @@ export class MessageCommandHandler {
             `summary: ${summary || '(none)'}`,
             'durableFacts:',
             durableFactsText,
+            'durableProfile:',
+            durableProfileText,
+            'recentNotes:',
+            recentNotesText,
           ].join('\n'),
         });
         this.db.markMessageProcessed(message.id);

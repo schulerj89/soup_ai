@@ -97,4 +97,22 @@ CREATE TABLE IF NOT EXISTS conversation_archives (
 
 CREATE INDEX IF NOT EXISTS idx_conversation_archives_chat_archived
   ON conversation_archives(chat_id, archived_at DESC);
+
+CREATE TABLE IF NOT EXISTS notes (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  chat_id TEXT NOT NULL,
+  title TEXT NOT NULL,
+  body TEXT NOT NULL,
+  tags_json TEXT NOT NULL DEFAULT '[]',
+  source_message_id INTEGER,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  FOREIGN KEY(source_message_id) REFERENCES messages(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_notes_chat_updated
+  ON notes(chat_id, updated_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_notes_chat_created
+  ON notes(chat_id, created_at DESC);
 `;

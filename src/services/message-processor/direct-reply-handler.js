@@ -22,6 +22,11 @@ export class DirectReplyHandler {
         conversationMemory: conversationState.seedText,
         conversationStateTool: this.createConversationStateTool(message.chat_id),
         resetConversationTool: this.createResetConversationTool(message.chat_id),
+        createNoteTool: this.createNoteTool(message.chat_id, message.id),
+        searchNotesTool: this.createSearchNotesTool(message.chat_id),
+        listRecentNotesTool: this.createListRecentNotesTool(message.chat_id),
+        getDurableProfileTool: this.createGetDurableProfileTool(message.chat_id),
+        mergeDurableProfileTool: this.createMergeDurableProfileTool(message.chat_id),
       });
     }
 
@@ -36,6 +41,11 @@ export class DirectReplyHandler {
       queueSnapshotTool: async () => this.db.getQueueSnapshot(),
       conversationStateTool: this.createConversationStateTool(message.chat_id),
       resetConversationTool: this.createResetConversationTool(message.chat_id),
+      createNoteTool: this.createNoteTool(message.chat_id, message.id),
+      searchNotesTool: this.createSearchNotesTool(message.chat_id),
+      listRecentNotesTool: this.createListRecentNotesTool(message.chat_id),
+      getDurableProfileTool: this.createGetDurableProfileTool(message.chat_id),
+      mergeDurableProfileTool: this.createMergeDurableProfileTool(message.chat_id),
     });
 
     return result?.text ?? 'No response text returned.';
@@ -68,6 +78,33 @@ export class DirectReplyHandler {
         memory_preserved: true,
       };
     };
+  }
+
+  createNoteTool(chatId, sourceMessageId) {
+    return async ({ title, body, tags = [] }) => this.db.createNote({
+      chatId,
+      title,
+      body,
+      tags,
+      sourceMessageId,
+    });
+  }
+
+  createSearchNotesTool(chatId) {
+    return async ({ query, limit = 5 }) => this.db.searchNotes(chatId, query, limit);
+  }
+
+  createListRecentNotesTool(chatId) {
+    return async ({ limit = 5 } = {}) => this.db.listRecentNotes(chatId, limit);
+  }
+
+  createGetDurableProfileTool(chatId) {
+    return async () => this.db.getDurableProfile(chatId);
+  }
+
+  createMergeDurableProfileTool(chatId) {
+    return async ({ patch, source = 'assistant_tool' }) =>
+      this.db.mergeDurableProfile(chatId, patch, { source });
   }
 
   listRecentTasks() {

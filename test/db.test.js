@@ -137,3 +137,46 @@ test('AppDb stores conversation control state and archives resets', () => {
     db.close();
   }
 });
+
+test('AppDb stores notes and merges durable profile state', () => {
+  const db = new AppDb({ dbPath: ':memory:' });
+
+  try {
+    const note = db.createNote({
+      chatId: 'chat-7',
+      title: 'Grocery list',
+      body: 'tomatoes, basil, pasta',
+      tags: ['Errands', 'Food'],
+    });
+
+    assert.equal(note.title, 'Grocery list');
+    assert.deepEqual(note.tags, ['errands', 'food']);
+    assert.equal(db.searchNotes('chat-7', 'basil', 5).length, 1);
+    assert.equal(
+      db.createNoteIfMissing({
+        chatId: 'chat-7',
+        title: 'Grocery list',
+        body: 'tomatoes, basil, pasta',
+        tags: ['food'],
+      }).id,
+      note.id,
+    );
+
+    const profile = db.mergeDurableProfile(
+      'chat-7',
+      {
+        preferences: { reply_style: 'concise' },
+        projects: ['soup_ai'],
+        saved_patterns: ['Usually asks for implementation before planning.'],
+      },
+      { source: 'test' },
+    );
+
+    assert.equal(profile.preferences.reply_style.value, 'concise');
+    assert.equal(profile.preferences.reply_style.source, 'test');
+    assert.equal(profile.projects[0].value, 'soup_ai');
+    assert.equal(db.getDurableProfile('chat-7').saved_patterns[0].value, 'Usually asks for implementation before planning.');
+  } finally {
+    db.close();
+  }
+});

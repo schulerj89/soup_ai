@@ -60,12 +60,121 @@ export class SupervisorAgent {
     return tools;
   }
 
-  buildAgent({ codexTool, codexStatusTool, recentTasksTool, queueSnapshotTool, conversationStateTool, resetConversationTool }) {
+  buildMemoryTools({
+    createNoteTool,
+    searchNotesTool,
+    listRecentNotesTool,
+    getDurableProfileTool,
+    mergeDurableProfileTool,
+  }) {
+    const tools = [];
+
+    if (typeof createNoteTool === 'function') {
+      tools.push(
+        this.toolFactory({
+          name: 'create_note',
+          description:
+            'Save a user note for future retrieval. Use when the user asks to remember or save something explicitly, or when preserving a durable reference would clearly help later.',
+          parameters: z.object({
+            title: z.string().min(1),
+            body: z.string().min(1),
+            tags: z.array(z.string().min(1)).max(8).optional(),
+          }),
+          execute: async (input) => createNoteTool(input),
+        }),
+      );
+    }
+
+    if (typeof searchNotesTool === 'function') {
+      tools.push(
+        this.toolFactory({
+          name: 'search_notes',
+          description: 'Search saved notes by keywords and return the most relevant recent matches.',
+          parameters: z.object({
+            query: z.string().min(1),
+            limit: z.number().int().min(1).max(10).optional(),
+          }),
+          execute: async (input) => searchNotesTool(input),
+        }),
+      );
+    }
+
+    if (typeof listRecentNotesTool === 'function') {
+      tools.push(
+        this.toolFactory({
+          name: 'list_recent_notes',
+          description: 'List the most recent saved notes.',
+          parameters: z.object({
+            limit: z.number().int().min(1).max(10).optional(),
+          }),
+          execute: async (input) => listRecentNotesTool(input),
+        }),
+      );
+    }
+
+    if (typeof getDurableProfileTool === 'function') {
+      tools.push(
+        this.toolFactory({
+          name: 'get_durable_profile',
+          description:
+            'Read the stored durable user profile, including preferences, routines, projects, people, and other stable long-term context.',
+          parameters: z.object({}),
+          execute: async () => getDurableProfileTool(),
+        }),
+      );
+    }
+
+    if (typeof mergeDurableProfileTool === 'function') {
+      tools.push(
+        this.toolFactory({
+          name: 'merge_durable_profile',
+          description:
+            'Merge stable user information into the durable profile. Use for clear preferences, routines, important people, projects, or personal details that should persist.',
+          parameters: z.object({
+            patch: z.object({
+              preferences: z.record(z.string(), z.string()).optional(),
+              routines: z.array(z.string()).optional(),
+              projects: z.array(z.string()).optional(),
+              people: z.record(z.string(), z.string()).optional(),
+              personal_details: z.record(z.string(), z.string()).optional(),
+              important_dates: z.array(z.string()).optional(),
+              saved_patterns: z.array(z.string()).optional(),
+            }),
+            source: z.string().min(1).optional(),
+          }),
+          execute: async (input) => mergeDurableProfileTool(input),
+        }),
+      );
+    }
+
+    return tools;
+  }
+
+  buildAgent({
+    codexTool,
+    codexStatusTool,
+    recentTasksTool,
+    queueSnapshotTool,
+    conversationStateTool,
+    resetConversationTool,
+    createNoteTool,
+    searchNotesTool,
+    listRecentNotesTool,
+    getDurableProfileTool,
+    mergeDurableProfileTool,
+  }) {
     const tools = [
       this.webSearchToolFactory({
         searchContextSize: 'medium',
       }),
       ...this.buildConversationTools({ conversationStateTool, resetConversationTool }),
+      ...this.buildMemoryTools({
+        createNoteTool,
+        searchNotesTool,
+        listRecentNotesTool,
+        getDurableProfileTool,
+        mergeDurableProfileTool,
+      }),
     ];
 
     tools.push(
@@ -162,6 +271,11 @@ export class SupervisorAgent {
     conversationMemory = null,
     conversationStateTool = null,
     resetConversationTool = null,
+    createNoteTool = null,
+    searchNotesTool = null,
+    listRecentNotesTool = null,
+    getDurableProfileTool = null,
+    mergeDurableProfileTool = null,
   }) {
     const result = await this.runImpl(
       this.agentFactory({
@@ -182,6 +296,13 @@ export class SupervisorAgent {
             searchContextSize: 'medium',
           }),
           ...this.buildConversationTools({ conversationStateTool, resetConversationTool }),
+          ...this.buildMemoryTools({
+            createNoteTool,
+            searchNotesTool,
+            listRecentNotesTool,
+            getDurableProfileTool,
+            mergeDurableProfileTool,
+          }),
         ],
       }),
       [
@@ -247,6 +368,11 @@ export class SupervisorAgent {
     queueSnapshotTool,
     conversationStateTool,
     resetConversationTool,
+    createNoteTool,
+    searchNotesTool,
+    listRecentNotesTool,
+    getDurableProfileTool,
+    mergeDurableProfileTool,
   }) {
     if (
       typeof codexTool !== 'function' ||
@@ -264,6 +390,11 @@ export class SupervisorAgent {
       queueSnapshotTool,
       conversationStateTool,
       resetConversationTool,
+      createNoteTool,
+      searchNotesTool,
+      listRecentNotesTool,
+      getDurableProfileTool,
+      mergeDurableProfileTool,
     });
 
     const result = await this.runImpl(agent, messageText, {

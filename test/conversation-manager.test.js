@@ -84,3 +84,44 @@ test('ConversationManager archives the current conversation and creates a new on
     db.close();
   }
 });
+
+test('ConversationManager seed text includes durable profile and recent notes', async () => {
+  const db = new AppDb({ dbPath: ':memory:' });
+  const fake = createFakeSessionFactory();
+
+  try {
+    const manager = new ConversationManager({
+      db,
+      sessionFactory: fake.factory,
+    });
+
+    db.mergeDurableProfile(
+      'chat-3',
+      {
+        preferences: { reply_style: 'concise' },
+        projects: ['soup_ai'],
+      },
+      { source: 'test' },
+    );
+    db.createNote({
+      chatId: 'chat-3',
+      title: 'Desk setup',
+      body: 'Secondary monitor uses HDMI 2.',
+      tags: ['hardware'],
+    });
+
+    manager.updateMemory('chat-3', {
+      memorySummary: 'User is iterating on assistant features.',
+      durableFacts: { open_tasks: ['Add profile storage'] },
+    });
+
+    const state = manager.getState('chat-3');
+
+    assert.match(state.seedText, /Conversation summary:\nUser is iterating on assistant features\./);
+    assert.match(state.seedText, /Durable profile:/);
+    assert.match(state.seedText, /reply_style: concise/);
+    assert.match(state.seedText, /Recent notes:\n- Desk setup \[tags: hardware\]: Secondary monitor uses HDMI 2\./);
+  } finally {
+    db.close();
+  }
+});

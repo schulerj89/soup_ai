@@ -130,12 +130,27 @@ test('DirectReplyHandler encapsulates tool wiring for handleMessage fallback', a
             prompt: 'Apply the refactor.',
             workingDirectory: 'C:/Users/joshs/Projects/soup_ai',
           });
+          const savedNote = await args.createNoteTool({
+            title: 'Follow-up',
+            body: 'Check the existing task after refactor.',
+            tags: ['tasks'],
+          });
+          const profile = await args.mergeDurableProfileTool({
+            patch: {
+              preferences: { reply_style: 'concise' },
+            },
+            source: 'test_agent',
+          });
+          const notes = await args.searchNotesTool({ query: 'refactor', limit: 5 });
           const recentTasks = await args.recentTasksTool();
           const queueSnapshot = await args.queueSnapshotTool();
 
           assert.equal(codexResult.task_id, 77);
           assert.equal(codexCalls[0].sourceJobId, 11);
-          assert.equal(codexCalls[0].sourceMessageId, 22);
+          assert.equal(codexCalls[0].sourceMessageId, inbound.id);
+          assert.equal(savedNote.title, 'Follow-up');
+          assert.equal(profile.preferences.reply_style.value, 'concise');
+          assert.equal(notes[0].title, 'Follow-up');
           assert.equal(recentTasks[0].title, 'Existing task');
           assert.equal(queueSnapshot.pendingJobs, 1);
 
@@ -155,7 +170,7 @@ test('DirectReplyHandler encapsulates tool wiring for handleMessage fallback', a
 
     const reply = await handler.reply({
       job: { id: 11 },
-      message: { id: 22, chat_id: 'chat-2', telegram_message_id: 33 },
+      message: { id: inbound.id, chat_id: 'chat-2', telegram_message_id: 33 },
       text: 'Do the local repo work.',
       plan: {
         reason: 'Local work required.',

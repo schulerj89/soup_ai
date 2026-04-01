@@ -6,6 +6,7 @@ import { conversationStoreMethods } from './stores/conversation-store.js';
 import { jobStoreMethods } from './stores/job-store.js';
 import { leaseStoreMethods } from './stores/lease-store.js';
 import { messageStoreMethods } from './stores/message-store.js';
+import { noteStoreMethods } from './stores/note-store.js';
 import { stateStoreMethods } from './stores/state-store.js';
 import { taskStoreMethods } from './stores/task-store.js';
 
@@ -31,6 +32,7 @@ export class AppDb {
 Object.assign(
   AppDb.prototype,
   stateStoreMethods,
+  noteStoreMethods,
   conversationStoreMethods,
   leaseStoreMethods,
   messageStoreMethods,
