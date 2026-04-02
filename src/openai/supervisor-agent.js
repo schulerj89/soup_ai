@@ -78,7 +78,7 @@ export class SupervisorAgent {
           parameters: z.object({
             title: z.string().min(1),
             body: z.string().min(1),
-            tags: z.array(z.string().min(1)).max(8).optional(),
+            tags: z.array(z.string().min(1)).max(8).default([]),
           }),
           execute: async (input) => createNoteTool(input),
         }),
@@ -92,7 +92,7 @@ export class SupervisorAgent {
           description: 'Search saved notes by keywords and return the most relevant recent matches.',
           parameters: z.object({
             query: z.string().min(1),
-            limit: z.number().int().min(1).max(10).optional(),
+            limit: z.number().int().min(1).max(10).default(5),
           }),
           execute: async (input) => searchNotesTool(input),
         }),
@@ -105,7 +105,7 @@ export class SupervisorAgent {
           name: 'list_recent_notes',
           description: 'List the most recent saved notes.',
           parameters: z.object({
-            limit: z.number().int().min(1).max(10).optional(),
+            limit: z.number().int().min(1).max(10).default(5),
           }),
           execute: async (input) => listRecentNotesTool(input),
         }),
@@ -132,17 +132,52 @@ export class SupervisorAgent {
             'Merge stable user information into the durable profile. Use for clear preferences, routines, important people, projects, or personal details that should persist.',
           parameters: z.object({
             patch: z.object({
-              preferences: z.record(z.string(), z.string()).optional(),
-              routines: z.array(z.string()).optional(),
-              projects: z.array(z.string()).optional(),
-              people: z.record(z.string(), z.string()).optional(),
-              personal_details: z.record(z.string(), z.string()).optional(),
-              important_dates: z.array(z.string()).optional(),
-              saved_patterns: z.array(z.string()).optional(),
+              preferences: z
+                .array(
+                  z.object({
+                    key: z.string().min(1),
+                    value: z.string().min(1),
+                  }),
+                )
+                .default([]),
+              routines: z.array(z.string()).default([]),
+              projects: z.array(z.string()).default([]),
+              people: z
+                .array(
+                  z.object({
+                    key: z.string().min(1),
+                    value: z.string().min(1),
+                  }),
+                )
+                .default([]),
+              personal_details: z
+                .array(
+                  z.object({
+                    key: z.string().min(1),
+                    value: z.string().min(1),
+                  }),
+                )
+                .default([]),
+              important_dates: z.array(z.string()).default([]),
+              saved_patterns: z.array(z.string()).default([]),
             }),
-            source: z.string().min(1).optional(),
+            source: z.string().min(1).default('assistant_tool'),
           }),
-          execute: async (input) => mergeDurableProfileTool(input),
+          execute: async (input) =>
+            mergeDurableProfileTool({
+              patch: {
+                preferences: Object.fromEntries(input.patch.preferences.map((entry) => [entry.key, entry.value])),
+                routines: input.patch.routines,
+                projects: input.patch.projects,
+                people: Object.fromEntries(input.patch.people.map((entry) => [entry.key, entry.value])),
+                personal_details: Object.fromEntries(
+                  input.patch.personal_details.map((entry) => [entry.key, entry.value]),
+                ),
+                important_dates: input.patch.important_dates,
+                saved_patterns: input.patch.saved_patterns,
+              },
+              source: input.source,
+            }),
         }),
       );
     }

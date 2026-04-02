@@ -61,3 +61,5 @@ npm run task:register
 ```
 
 That creates a Task Scheduler job named `SoupAiSupervisor` which runs once per minute.
+
+The registration script explicitly allows battery-powered runs and tries to register the task with background `S4U` logon for the current user. If Windows blocks that richer registration on your machine, the script falls back to a basic `schtasks` task and prints a warning that it may remain interactive-only and battery-restricted unless you recreate it from an elevated PowerShell session.

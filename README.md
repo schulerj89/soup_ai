@@ -61,6 +61,13 @@ If that works, register the scheduled task:
 npm run task:register
 ```
 
+The registration script now creates explicit Task Scheduler settings instead of relying on `schtasks` defaults:
+
+- allows runs on battery power
+- sets a working directory for the task action
+- prefers background `S4U` logon under your current user account
+- falls back to a basic `schtasks` registration with a warning if Windows blocks the richer task profile
+
 ## Useful commands
 
 ```powershell

@@ -145,3 +145,52 @@ test('SupervisorAgent answerDirectly includes hosted web search for current ques
   assert.deepEqual(hostedToolDefinitions, [{ searchContextSize: 'medium' }]);
   assert.equal(runOptions.maxTurns, 3);
 });
+
+test('SupervisorAgent memory tools avoid optional object properties in their schemas', () => {
+  const toolDefinitions = [];
+  const agent = new SupervisorAgent({
+    model: 'gpt-4.1-mini',
+    toolFactory: (options) => {
+      toolDefinitions.push(options);
+      return options;
+    },
+  });
+
+  agent.buildMemoryTools({
+    createNoteTool: async () => ({}),
+    searchNotesTool: async () => [],
+    listRecentNotesTool: async () => [],
+    getDurableProfileTool: async () => ({}),
+    mergeDurableProfileTool: async () => ({}),
+  });
+
+  const createNote = toolDefinitions.find((entry) => entry.name === 'create_note');
+  const searchNotes = toolDefinitions.find((entry) => entry.name === 'search_notes');
+  const listRecentNotes = toolDefinitions.find((entry) => entry.name === 'list_recent_notes');
+  const mergeDurableProfile = toolDefinitions.find((entry) => entry.name === 'merge_durable_profile');
+
+  assert.deepEqual(createNote.parameters.safeParse({ title: 't', body: 'b' }).data, {
+    title: 't',
+    body: 'b',
+    tags: [],
+  });
+  assert.deepEqual(searchNotes.parameters.safeParse({ query: 'repo' }).data, {
+    query: 'repo',
+    limit: 5,
+  });
+  assert.deepEqual(listRecentNotes.parameters.safeParse({}).data, {
+    limit: 5,
+  });
+  assert.deepEqual(mergeDurableProfile.parameters.safeParse({ patch: {} }).data, {
+    patch: {
+      preferences: [],
+      routines: [],
+      projects: [],
+      people: [],
+      personal_details: [],
+      important_dates: [],
+      saved_patterns: [],
+    },
+    source: 'assistant_tool',
+  });
+});
