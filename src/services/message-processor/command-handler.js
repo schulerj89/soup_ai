@@ -30,6 +30,7 @@ export class MessageCommandHandler {
       case '/health':
       case '/status': {
         const snapshot = this.db.getQueueSnapshot();
+        const activeRun = this.db.getActiveCodexRun();
         const conversationState = this.conversationManager?.getState(message.chat_id) ?? null;
         const statusLines = [
           'Soup AI health',
@@ -38,6 +39,18 @@ export class MessageCommandHandler {
           `pendingOutbound: ${snapshot.pendingOutbound}`,
           `runningTasks: ${snapshot.runningTasks}`,
         ];
+
+        if (activeRun) {
+          statusLines.push(`activeCodexTaskId: ${activeRun.taskId ?? '(unknown)'}`);
+          statusLines.push(`activeCodexPid: ${activeRun.pid ?? '(unknown)'}`);
+          statusLines.push(`activeCodexTitle: ${activeRun.taskTitle ?? '(unknown)'}`);
+          statusLines.push(`activeCodexStartedAt: ${activeRun.startedAt ?? '(unknown)'}`);
+          statusLines.push(`activeCodexTimeoutAt: ${activeRun.timeoutAt ?? '(unknown)'}`);
+          statusLines.push(`activeCodexStdoutBytes: ${activeRun.stdoutBytes ?? 0}`);
+          statusLines.push(`activeCodexStderrBytes: ${activeRun.stderrBytes ?? 0}`);
+          statusLines.push(`activeCodexLastOutputAt: ${activeRun.lastOutputAt ?? '(none)'}`);
+          statusLines.push(`activeCodexOutputFile: ${activeRun.outputLastMessagePath ?? '(none)'}`);
+        }
 
         if (conversationState) {
           statusLines.push(`conversationGeneration: ${conversationState.conversationGeneration}`);

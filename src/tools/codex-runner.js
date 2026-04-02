@@ -173,11 +173,12 @@ export class CodexRunner {
     }
   }
 
-  async run({ prompt, workingDirectory, onSpawn = null, onExit = null }) {
+  async run({ prompt, workingDirectory, onSpawn = null, onExit = null, onStdout = null, onStderr = null }) {
     const safeDirectory = this.assertAllowedDirectory(workingDirectory);
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'soup-ai-codex-'));
     const outputSchemaPath = path.join(tempDir, `codex-schema-${randomUUID()}.json`);
     const outputLastMessagePath = path.join(tempDir, `codex-output-${randomUUID()}.json`);
+    const startedAt = new Date().toISOString();
     fs.writeFileSync(outputSchemaPath, JSON.stringify(CODEX_REPORT_SCHEMA, null, 2), 'utf8');
 
     try {
@@ -190,8 +191,17 @@ export class CodexRunner {
       const initialResult = await this.processRunner.execute({
         spawnSpec: this.buildSpawnSpec(initialArgs),
         workingDirectory: safeDirectory,
-        onSpawn,
+        onSpawn: (event) =>
+          onSpawn?.({
+            ...event,
+            startedAt,
+            timeoutMs: this.timeoutMs,
+            outputSchemaPath,
+            outputLastMessagePath,
+          }),
         onExit,
+        onStdout,
+        onStderr,
       });
 
       let finalResult = initialResult;
@@ -211,8 +221,17 @@ export class CodexRunner {
         const fallbackResult = await this.processRunner.execute({
           spawnSpec: this.buildSpawnSpec(fallbackArgs),
           workingDirectory: safeDirectory,
-          onSpawn,
+          onSpawn: (event) =>
+            onSpawn?.({
+              ...event,
+              startedAt,
+              timeoutMs: this.timeoutMs,
+              outputSchemaPath,
+              outputLastMessagePath,
+            }),
           onExit,
+          onStdout,
+          onStderr,
         });
 
         finalResult = {

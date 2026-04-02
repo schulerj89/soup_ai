@@ -14,6 +14,29 @@ function quoteForCmd(value) {
   return `"${`${value}`.replace(/"/g, '""')}"`;
 }
 
+function resolveBundledCodexScript(command) {
+  const extension = path.extname(command).toLowerCase();
+
+  if (!['.cmd', '.bat', '.ps1'].includes(extension)) {
+    return null;
+  }
+
+  const baseName = path.basename(command, extension).toLowerCase();
+  if (baseName !== 'codex') {
+    return null;
+  }
+
+  const basedir = path.dirname(command);
+  const nodeExe = path.join(basedir, process.platform === 'win32' ? 'node.exe' : 'node');
+  const codexScript = path.join(basedir, 'node_modules', '@openai', 'codex', 'bin', 'codex.js');
+
+  if (!fs.existsSync(nodeExe) || !fs.existsSync(codexScript)) {
+    return null;
+  }
+
+  return { nodeExe, codexScript };
+}
+
 export class CodexCommandBuilder {
   constructor({ codexBin, codexModel, codexEnableSearch }) {
     this.codexBin = codexBin;
@@ -89,6 +112,18 @@ export class CodexCommandBuilder {
   buildSpawnSpec(args) {
     const command = this.resolveSpawnCommand();
     const extension = path.extname(command).toLowerCase();
+
+    if (process.platform === 'win32') {
+      const bundledScript = resolveBundledCodexScript(command);
+
+      if (bundledScript) {
+        return {
+          command: bundledScript.nodeExe,
+          args: [bundledScript.codexScript, ...args],
+          shell: false,
+        };
+      }
+    }
 
     if (process.platform === 'win32' && (extension === '.cmd' || extension === '.bat')) {
       return {

@@ -135,6 +135,37 @@ test('CodexRunner wraps codex.cmd with cmd.exe on Windows', () => {
   }
 });
 
+test('CodexRunner bypasses Windows codex launcher scripts when bundled node and codex.js are present', () => {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'soup-ai-codex-launcher-'));
+  const binDir = path.join(tempRoot, 'bin');
+  const packageDir = path.join(binDir, 'node_modules', '@openai', 'codex', 'bin');
+  fs.mkdirSync(packageDir, { recursive: true });
+  fs.writeFileSync(path.join(binDir, 'codex.ps1'), 'placeholder', 'utf8');
+  fs.writeFileSync(path.join(binDir, 'node.exe'), '', 'utf8');
+  fs.writeFileSync(path.join(packageDir, 'codex.js'), '', 'utf8');
+
+  const runner = new CodexRunner({
+    codexBin: path.join(binDir, 'codex.ps1'),
+    workspaceRoot: 'C:/Users/joshs/Projects',
+    codexModel: null,
+    codexEnableSearch: false,
+    timeoutMs: 1000,
+    codexHome: os.tmpdir(),
+  });
+
+  const originalPlatform = process.platform;
+  Object.defineProperty(process, 'platform', { value: 'win32' });
+
+  try {
+    const spec = runner.buildSpawnSpec(['exec', 'test']);
+    assert.equal(spec.command, path.join(binDir, 'node.exe'));
+    assert.deepEqual(spec.args, [path.join(packageDir, 'codex.js'), 'exec', 'test']);
+    assert.equal(spec.shell, false);
+  } finally {
+    Object.defineProperty(process, 'platform', { value: originalPlatform });
+  }
+});
+
 test('CodexRunner keeps direct spawn for executables on Windows', () => {
   const runner = new CodexRunner({
     codexBin: 'C:\\tools\\codex.exe',

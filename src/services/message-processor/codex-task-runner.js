@@ -30,6 +30,22 @@ export class CodexTaskRunner {
     return formatCodexResultMessage(result);
   }
 
+  recordOutputProgress(fieldName, chunk, timestamp) {
+    const activeRun = this.db.getActiveCodexRun();
+
+    if (!activeRun) {
+      return;
+    }
+
+    const previousBytes = Number.isFinite(activeRun[fieldName]) ? activeRun[fieldName] : 0;
+    const lastOutputPreview = `${chunk}`.trim().slice(-200) || activeRun.lastOutputPreview || null;
+    this.db.updateActiveCodexRun({
+      [fieldName]: previousBytes + Buffer.byteLength(chunk, 'utf8'),
+      lastOutputAt: timestamp,
+      lastOutputPreview,
+    });
+  }
+
   async execute({ taskTitle, prompt, workingDirectory, sourceJobId, sourceMessageId }) {
     const previewCommand = [
       this.config.codexBin,
@@ -52,7 +68,7 @@ export class CodexTaskRunner {
       const result = await this.codexRunner.run({
         prompt,
         workingDirectory,
-        onSpawn: ({ pid }) => {
+        onSpawn: ({ pid, startedAt, timeoutMs, outputSchemaPath, outputLastMessagePath }) => {
           this.db.setActiveCodexRun({
             pid,
             taskId: task.id,
@@ -60,11 +76,25 @@ export class CodexTaskRunner {
             sourceMessageId,
             taskTitle,
             workingDirectory,
-            startedAt: this.db.now(),
+            startedAt,
+            timeoutMs,
+            timeoutAt: new Date(Date.parse(startedAt) + timeoutMs).toISOString(),
+            outputSchemaPath,
+            outputLastMessagePath,
+            stdoutBytes: 0,
+            stderrBytes: 0,
+            lastOutputAt: null,
+            lastOutputPreview: null,
           });
         },
         onExit: () => {
           this.db.clearActiveCodexRun();
+        },
+        onStdout: ({ chunk, timestamp }) => {
+          this.recordOutputProgress('stdoutBytes', chunk, timestamp);
+        },
+        onStderr: ({ chunk, timestamp }) => {
+          this.recordOutputProgress('stderrBytes', chunk, timestamp);
         },
       });
       const structuredReport = result.structuredReport ?? null;

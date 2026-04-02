@@ -60,6 +60,22 @@ export const stateStoreMethods = {
     this.setState('active_codex_run', value);
   },
 
+  updateActiveCodexRun(patch) {
+    const current = this.getActiveCodexRun();
+
+    if (!current) {
+      return null;
+    }
+
+    const nextValue = {
+      ...current,
+      ...patch,
+    };
+
+    this.setActiveCodexRun(nextValue);
+    return nextValue;
+  },
+
   clearActiveCodexRun() {
     this.db.prepare('DELETE FROM app_state WHERE key = ?').run('active_codex_run');
   },

@@ -218,6 +218,59 @@ test('MessageProcessor handles built-in slash commands without invoking planning
   }
 });
 
+test('MessageProcessor /status includes active Codex telemetry when present', async () => {
+  const db = createTestDb();
+
+  try {
+    db.setActiveCodexRun({
+      pid: 4321,
+      taskId: 77,
+      taskTitle: 'Inspect repo state',
+      startedAt: '2026-04-02T22:42:13.746Z',
+      timeoutAt: '2026-04-02T22:57:13.746Z',
+      stdoutBytes: 128,
+      stderrBytes: 32,
+      lastOutputAt: '2026-04-02T22:44:00.000Z',
+      outputLastMessagePath: 'C:\\temp\\codex-output.json',
+    });
+
+    const { job } = queueInboundJob(db, {
+      updateId: 70,
+      telegramMessageId: 170,
+      chatId: 'chat-status',
+      text: '/status',
+    });
+
+    const processor = new MessageProcessor({
+      db,
+      agent: {},
+      executionPlanner: null,
+      codexRunner: {
+        run: async () => {
+          throw new Error('codex should not run for /status');
+        },
+        getStatus: async () => ({ ok: true }),
+      },
+      config,
+      conversationManager: createConversationManagerStub(),
+    });
+
+    await processor.processJob(job);
+
+    const outbound = listOutboundMessages(db);
+    assert.match(outbound[0], /activeCodexTaskId: 77/);
+    assert.match(outbound[0], /activeCodexPid: 4321/);
+    assert.match(outbound[0], /activeCodexTitle: Inspect repo state/);
+    assert.match(outbound[0], /activeCodexTimeoutAt: 2026-04-02T22:57:13\.746Z/);
+    assert.match(outbound[0], /activeCodexStdoutBytes: 128/);
+    assert.match(outbound[0], /activeCodexStderrBytes: 32/);
+    assert.match(outbound[0], /activeCodexLastOutputAt: 2026-04-02T22:44:00\.000Z/);
+    assert.match(outbound[0], /activeCodexOutputFile: C:\\temp\\codex-output\.json/);
+  } finally {
+    db.close();
+  }
+});
+
 test('MessageProcessor still uses the supervisor agent for informational requests', async () => {
   const db = createTestDb();
 

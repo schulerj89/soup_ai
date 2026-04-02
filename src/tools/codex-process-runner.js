@@ -9,7 +9,14 @@ export class CodexProcessRunner {
     this.killProcessTree = killProcessTree;
   }
 
-  async execute({ spawnSpec, workingDirectory, onSpawn = null, onExit = null }) {
+  async execute({
+    spawnSpec,
+    workingDirectory,
+    onSpawn = null,
+    onExit = null,
+    onStdout = null,
+    onStderr = null,
+  }) {
     return new Promise((resolve, reject) => {
       const child = this.spawnImpl(spawnSpec.command, spawnSpec.args, {
         cwd: workingDirectory,
@@ -45,11 +52,19 @@ export class CodexProcessRunner {
       }, this.timeoutMs);
 
       child.stdout.on('data', (chunk) => {
-        stdout += chunk.toString();
+        const text = chunk.toString();
+        stdout += text;
+        if (onStdout) {
+          Promise.resolve(onStdout({ pid: child.pid, chunk: text, timestamp: new Date().toISOString() })).catch(() => {});
+        }
       });
 
       child.stderr.on('data', (chunk) => {
-        stderr += chunk.toString();
+        const text = chunk.toString();
+        stderr += text;
+        if (onStderr) {
+          Promise.resolve(onStderr({ pid: child.pid, chunk: text, timestamp: new Date().toISOString() })).catch(() => {});
+        }
       });
 
       child.on('error', (error) => {
