@@ -269,6 +269,74 @@ test('MessageProcessor /status includes active Codex telemetry when present', as
   }
 });
 
+test('MessageProcessor handles Telegram-style bot command suffixes for /status', async () => {
+  const db = createTestDb();
+
+  try {
+    const { job } = queueInboundJob(db, {
+      updateId: 71,
+      telegramMessageId: 171,
+      chatId: 'chat-status-suffix',
+      text: '/status@soup_ai_bot',
+    });
+
+    const processor = new MessageProcessor({
+      db,
+      agent: {},
+      executionPlanner: null,
+      codexRunner: {
+        run: async () => {
+          throw new Error('codex should not run for /status');
+        },
+        getStatus: async () => ({ ok: true }),
+      },
+      config,
+      conversationManager: createConversationManagerStub(),
+    });
+
+    await processor.processJob(job);
+
+    const outbound = listOutboundMessages(db);
+    assert.match(outbound[0], /Soup AI health/);
+  } finally {
+    db.close();
+  }
+});
+
+test('MessageProcessor handles /status with trailing text', async () => {
+  const db = createTestDb();
+
+  try {
+    const { job } = queueInboundJob(db, {
+      updateId: 72,
+      telegramMessageId: 172,
+      chatId: 'chat-status-trailing',
+      text: '/status please',
+    });
+
+    const processor = new MessageProcessor({
+      db,
+      agent: {},
+      executionPlanner: null,
+      codexRunner: {
+        run: async () => {
+          throw new Error('codex should not run for /status');
+        },
+        getStatus: async () => ({ ok: true }),
+      },
+      config,
+      conversationManager: createConversationManagerStub(),
+    });
+
+    await processor.processJob(job);
+
+    const outbound = listOutboundMessages(db);
+    assert.match(outbound[0], /Soup AI health/);
+  } finally {
+    db.close();
+  }
+});
+
 test('MessageProcessor still uses the supervisor agent for informational requests', async () => {
   const db = createTestDb();
 

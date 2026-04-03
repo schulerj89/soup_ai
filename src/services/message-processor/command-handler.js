@@ -1,5 +1,17 @@
 import { formatTaskList } from './helpers.js';
 
+function normalizeCommandText(commandText) {
+  const normalized = `${commandText ?? ''}`.trim().toLowerCase();
+
+  if (!normalized.startsWith('/')) {
+    return normalized;
+  }
+
+  const firstToken = normalized.split(/\s+/, 1)[0];
+  const [command] = firstToken.split('@', 1);
+  return command;
+}
+
 export class MessageCommandHandler {
   constructor({ db, replyQueue, conversationManager = null }) {
     this.db = db;
@@ -8,7 +20,7 @@ export class MessageCommandHandler {
   }
 
   async tryHandle(message, commandText) {
-    switch (commandText) {
+    switch (normalizeCommandText(commandText)) {
       case '/help':
         this.replyQueue.queue({
           chatId: message.chat_id,
