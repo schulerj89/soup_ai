@@ -1,19 +1,15 @@
 param(
-  [string]$TaskName = "SoupAiSupervisor",
-  [int]$IntervalMinutes = 1
+  [string]$TaskName = "SoupAiSupervisor"
 )
 
 $projectRoot = Split-Path -Parent $PSScriptRoot
 $runner = Join-Path $projectRoot "scripts\run-supervisor.cmd"
 $taskCommand = "`"$runner`""
 $userId = "$env:USERDOMAIN\$env:USERNAME"
-$startAt = (Get-Date).AddMinutes(1)
-$interval = New-TimeSpan -Minutes $IntervalMinutes
-$duration = New-TimeSpan -Days 3650
 
-Write-Host "Registering Task Scheduler job '$TaskName' to run every $IntervalMinutes minute(s)."
+Write-Host "Registering Task Scheduler job '$TaskName' to start Soup AI at logon."
 $action = New-ScheduledTaskAction -Execute $runner -WorkingDirectory $projectRoot
-$trigger = New-ScheduledTaskTrigger -Once -At $startAt -RepetitionInterval $interval -RepetitionDuration $duration
+$trigger = New-ScheduledTaskTrigger -AtLogOn -User $userId
 $settings = New-ScheduledTaskSettingsSet `
   -AllowStartIfOnBatteries `
   -DontStopIfGoingOnBatteries `
@@ -29,14 +25,14 @@ try {
     -Trigger $trigger `
     -Settings $settings `
     -Principal $principal `
-    -Description "Runs Soup AI supervisor once per minute." `
+    -Description "Runs Soup AI supervisor continuously in the background after logon." `
     -Force `
     -ErrorAction Stop | Out-Null
 
   Write-Host "Registered background task for $userId using S4U logon."
 } catch {
   Write-Warning "Background S4U registration failed for $userId. Falling back to basic schtasks registration. Error: $($_.Exception.Message)"
-  schtasks.exe /Create /SC MINUTE /MO $IntervalMinutes /TN $TaskName /TR $taskCommand /F | Out-Host
+  schtasks.exe /Create /SC ONLOGON /TN $TaskName /TR $taskCommand /F | Out-Host
 
   if ($LASTEXITCODE -ne 0) {
     throw "schtasks fallback registration failed with exit code $LASTEXITCODE."

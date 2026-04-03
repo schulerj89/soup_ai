@@ -104,7 +104,7 @@ export async function runPromptSetup() {
     console.log('');
     console.log(`Wrote ${path.relative(projectRoot, envPath)} and initialized the SQLite database.`);
     console.log('Next steps:');
-    console.log('1. npm run supervisor:once');
+    console.log('1. npm run supervisor:serve');
     console.log('2. npm run task:register');
     console.log('3. Read docs/telegram.md if you still need bot/chat details');
   } finally {

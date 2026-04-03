@@ -55,6 +55,14 @@ npm run supervisor:once
 
 That single run polls Telegram, downloads and transcribes supported voice/audio messages, processes text requests, and sends queued replies.
 
+For normal use on Windows, run the persistent background mode instead:
+
+```powershell
+npm run supervisor:serve
+```
+
+That keeps a local process alive, long-polls Telegram, and reacts to new messages with much lower latency than a once-per-minute scheduler tick.
+
 If that works, register the scheduled task:
 
 ```powershell
@@ -65,6 +73,7 @@ The registration script now creates explicit Task Scheduler settings instead of 
 
 - allows runs on battery power
 - sets a working directory for the task action
+- starts at logon and stays running in the background
 - prefers background `S4U` logon under your current user account
 - falls back to a basic `schtasks` registration with a warning if Windows blocks the richer task profile
 
@@ -75,6 +84,7 @@ npm run discover:telegram
 npm run inspect:codex
 npm run send:message -- --text "Manual outbound test"
 npm run supervisor:once
+npm run supervisor:serve
 npm run task:register
 npm run task:unregister
 npm test

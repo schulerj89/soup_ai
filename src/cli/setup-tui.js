@@ -230,7 +230,7 @@ function DoneScreen({ envPath }) {
     h(Text, null, `Wrote ${envPath} and initialized the SQLite database.`),
     h(Text, null, ''),
     h(Text, null, 'Next steps:'),
-    h(Text, null, '1. npm run supervisor:once'),
+    h(Text, null, '1. npm run supervisor:serve'),
     h(Text, null, '2. npm run task:register'),
     h(Text, null, '3. Read docs/telegram.md if you still need bot/chat details'),
     h(Text, null, ''),
