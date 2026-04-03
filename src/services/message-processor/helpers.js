@@ -181,8 +181,10 @@ function hasRecordedWork(result) {
     return false;
   }
 
+  const structuredStatus = normalizeStructuredStatus(report);
+
   return (
-    normalizeStructuredStatus(report) === 'completed' ||
+    (structuredStatus.kind === 'valid' && structuredStatus.value === 'completed') ||
     (Array.isArray(report.files_changed) && report.files_changed.length > 0) ||
     (Array.isArray(report.verification) && report.verification.length > 0) ||
     Boolean(report.commit_hash)
@@ -195,7 +197,16 @@ function reportHasFollowUp(report) {
 
 function normalizeStructuredStatus(report) {
   const status = `${report?.status ?? ''}`.trim().toLowerCase();
-  return ['completed', 'partial', 'failed'].includes(status) ? status : null;
+
+  if (!status) {
+    return { kind: 'missing', value: null };
+  }
+
+  if (['completed', 'partial', 'failed'].includes(status)) {
+    return { kind: 'valid', value: status };
+  }
+
+  return { kind: 'invalid', value: status };
 }
 
 export function classifyCodexResult(result) {
@@ -206,10 +217,14 @@ export function classifyCodexResult(result) {
   const report = result?.structuredReport;
 
   if (report && typeof report === 'object') {
-    const explicitStatus = normalizeStructuredStatus(report);
+    const structuredStatus = normalizeStructuredStatus(report);
 
-    if (explicitStatus) {
-      return explicitStatus;
+    if (structuredStatus.kind === 'valid') {
+      return structuredStatus.value;
+    }
+
+    if (structuredStatus.kind === 'invalid') {
+      return 'failed';
     }
 
     if (report.completed === true && !reportHasFollowUp(report) && result.acknowledgedOnly !== true) {

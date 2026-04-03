@@ -411,6 +411,79 @@ test('MessageProcessor reports acknowledgement-only Codex runs as incomplete whe
   }
 });
 
+test('MessageProcessor fails closed when Codex returns an invalid explicit status', async () => {
+  const db = createTestDb();
+
+  try {
+    const { job } = queueInboundJob(db, {
+      updateId: 31,
+      telegramMessageId: 131,
+      chatId: 'chat-invalid-status',
+      text: 'Please update the repo.',
+    });
+
+    const processor = new MessageProcessor({
+      db,
+      agent: {
+        composeAcknowledgement: async () => "Got it. I'll start that now.",
+        summarizeCodexResult: async ({ codexResult }) => codexResult.summary,
+      },
+      executionPlanner: {
+        plan: async () => ({
+          action: 'run_codex',
+          reason: 'User asked for repo work.',
+          responseOutline: null,
+          taskTitle: 'Update repo',
+          executionPlan: {
+            goal: 'Please update the repo.',
+            steps: ['Update the repo as requested.'],
+            targetPaths: [],
+            exactFileContents: [],
+            constraints: [],
+            verification: [],
+          },
+          workingDirectory: 'C:/Users/joshs/Projects/soup_ai',
+        }),
+      },
+      codexRunner: {
+        run: async () => ({
+          workingDirectory: 'C:/Users/joshs/Projects/soup_ai',
+          command: 'codex exec ...',
+          exitCode: 0,
+          timedOut: false,
+          structuredReport: {
+            status: 'done',
+            summary: 'Applied the requested changes.',
+            files_changed: ['src/example.js'],
+            verification: ['npm test'],
+            commit_hash: null,
+            push_succeeded: null,
+            follow_up: null,
+            raw_user_visible_output: 'Applied the requested changes.',
+          },
+          acknowledgedOnly: false,
+          stdout: '',
+          stderr: '',
+        }),
+      },
+      config,
+      conversationManager: createConversationManagerStub(),
+    });
+
+    await processor.processJob(job);
+
+    const latestTask = db.listRecentTasks(1)[0];
+    const toolRun = JSON.parse(db.db.prepare('SELECT output_json FROM tool_runs ORDER BY id DESC LIMIT 1').get().output_json);
+    const outbound = listOutboundMessages(db);
+
+    assert.equal(latestTask.status, 'failed');
+    assert.equal(toolRun.result_status, 'failed');
+    assert.equal(outbound[1], 'Codex did not complete the requested work.');
+  } finally {
+    db.close();
+  }
+});
+
 test('MessageProcessor reports partial Codex runs when changes were made but the task was not completed', async () => {
   const db = createTestDb();
 
