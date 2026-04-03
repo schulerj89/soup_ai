@@ -402,6 +402,77 @@ test('MessageProcessor still uses the supervisor agent for informational request
   }
 });
 
+test('MessageProcessor overrides answer_directly when the user explicitly asks to have Codex inspect the repo', async () => {
+  const db = createTestDb();
+
+  try {
+    const { job } = queueInboundJob(db, {
+      updateId: 200,
+      telegramMessageId: 220,
+      chatId: 'chat-explicit-codex',
+      text: 'Could you have codex look into soup_ai summarize how it stores memory?',
+    });
+
+    let codexInput = null;
+
+    const processor = new MessageProcessor({
+      db,
+      agent: {
+        composeAcknowledgement: async () => "Got it. I'll start that now.",
+        summarizeCodexResult: async ({ codexResult }) => codexResult.summary,
+        answerDirectly: async () => {
+          throw new Error('answerDirectly should not run for an explicit Codex request');
+        },
+      },
+      executionPlanner: {
+        plan: async () => ({
+          action: 'answer_directly',
+          reason: 'This is analysis work.',
+          responseOutline: 'Answer with a high-level summary.',
+          taskTitle: null,
+          executionPlan: null,
+          workingDirectory: null,
+        }),
+      },
+      codexRunner: {
+        run: async ({ prompt, workingDirectory }) => {
+          codexInput = { prompt, workingDirectory };
+          return {
+            workingDirectory,
+            command: 'codex exec ...',
+            exitCode: 0,
+            timedOut: false,
+            structuredReport: {
+              status: 'completed',
+              summary: 'Inspected the repo memory storage.',
+              files_changed: [],
+              verification: ['Reviewed the relevant files.'],
+              remaining_work: [],
+              user_message: 'Inspected the repo memory storage.',
+            },
+            acknowledgedOnly: false,
+            stdout: '',
+            stderr: '',
+          };
+        },
+        getStatus: async () => ({ ok: true }),
+      },
+      config,
+      conversationManager: createConversationManagerStub(),
+    });
+
+    await processor.processJob(job);
+
+    const outbound = listOutboundMessages(db);
+
+    assert.equal(codexInput.workingDirectory, 'C:/Users/joshs/Projects/soup_ai');
+    assert.match(codexInput.prompt, /Goal:\nCould you have codex look into soup_ai summarize how it stores memory\?/);
+    assert.deepEqual(outbound, ["Got it. I'll start that now.", 'Inspected the repo memory storage.']);
+  } finally {
+    db.close();
+  }
+});
+
 test('MessageProcessor reports acknowledgement-only Codex runs as incomplete when chosen by the agent', async () => {
   const db = createTestDb();
 

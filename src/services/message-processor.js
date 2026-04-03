@@ -3,6 +3,7 @@ import { ReplyQueue } from './message-processor/reply-queue.js';
 import { MessageCommandHandler } from './message-processor/command-handler.js';
 import { CodexTaskRunner } from './message-processor/codex-task-runner.js';
 import { DirectReplyHandler } from './message-processor/direct-reply-handler.js';
+import { inferTaskTitle } from './message-processor/helpers.js';
 
 function toPlannerItems(rows) {
   return rows
@@ -24,6 +25,40 @@ function toPlannerItems(rows) {
       };
     })
     .filter(Boolean);
+}
+
+function mentionsCurrentRepo(text) {
+  return /\bsoup_ai\b|\bthis repo\b|\bthe repo\b|\bcurrent repo\b/i.test(`${text ?? ''}`);
+}
+
+function isExplicitCodexExecutionRequest(text) {
+  const normalized = `${text ?? ''}`.trim();
+
+  if (!normalized) {
+    return false;
+  }
+
+  return /\b(?:run|use|have)\s+codex\b|\bcodex\b.*\b(?:run|do|inspect|check|look into|analyze|summarize|review|fix|update|push|commit)\b/i.test(
+    normalized,
+  );
+}
+
+function buildFallbackCodexPlan({ text, workspaceRoot, projectRoot }) {
+  return {
+    action: 'run_codex',
+    reason: 'User explicitly asked to have Codex perform local work.',
+    responseOutline: null,
+    taskTitle: inferTaskTitle(text),
+    executionPlan: {
+      goal: text,
+      steps: ['Inspect the relevant local workspace or repo and perform the requested Codex task.'],
+      targetPaths: [mentionsCurrentRepo(text) ? projectRoot : workspaceRoot],
+      exactFileContents: [],
+      constraints: ['Work only inside the approved workspace root.', 'Base conclusions on local code and files.'],
+      verification: ['Report what was inspected, changed, or verified.'],
+    },
+    workingDirectory: mentionsCurrentRepo(text) ? projectRoot : workspaceRoot,
+  };
 }
 
 export class MessageProcessor {
@@ -106,10 +141,19 @@ export class MessageProcessor {
           workingDirectory: projectRoot,
         };
 
-    if (plan.action === 'run_codex') {
-      await this.processCodexPlan({ job, message, text, plan, projectRoot });
+    const effectivePlan =
+      plan.action === 'answer_directly' && isExplicitCodexExecutionRequest(text)
+        ? buildFallbackCodexPlan({
+            text,
+            workspaceRoot: this.config.workspaceRoot,
+            projectRoot,
+          })
+        : plan;
+
+    if (effectivePlan.action === 'run_codex') {
+      await this.processCodexPlan({ job, message, text, plan: effectivePlan, projectRoot });
     } else {
-      await this.processDirectReply({ job, message, text, plan });
+      await this.processDirectReply({ job, message, text, plan: effectivePlan });
     }
 
     if (this.memorySummarizer) {
