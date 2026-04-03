@@ -21,6 +21,8 @@ const CODEX_REPORT_SCHEMA = {
     'summary',
     'files_changed',
     'verification',
+    'remaining_work',
+    'git',
     'user_message',
   ],
   properties: {
@@ -42,7 +44,7 @@ const CODEX_REPORT_SCHEMA = {
       items: { type: 'string' },
     },
     git: {
-      type: 'object',
+      type: ['object', 'null'],
       additionalProperties: false,
       required: ['commit_hashes', 'push_succeeded'],
       properties: {

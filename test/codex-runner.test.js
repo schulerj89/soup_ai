@@ -345,6 +345,8 @@ test('CodexRunner writes a strict git schema compatible with Codex structured ou
     },
   });
 
+  assert.deepEqual(schema?.required, ['status', 'summary', 'files_changed', 'verification', 'remaining_work', 'git', 'user_message']);
+  assert.deepEqual(schema?.properties?.git?.type, ['object', 'null']);
   assert.deepEqual(schema?.properties?.git?.required, ['commit_hashes', 'push_succeeded']);
   assert.deepEqual(schema?.properties?.git?.properties?.push_succeeded?.type, ['boolean', 'null']);
 });
