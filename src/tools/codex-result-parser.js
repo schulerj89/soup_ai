@@ -11,6 +11,47 @@ function parseJsonObject(value) {
   return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : null;
 }
 
+function normalizeLegacyStructuredReport(report) {
+  if (!report || typeof report !== 'object' || Array.isArray(report)) {
+    return null;
+  }
+
+  const normalized = { ...report };
+  const followUp = `${report.follow_up ?? ''}`.trim();
+
+  if (!Array.isArray(normalized.remaining_work)) {
+    normalized.remaining_work = followUp ? [followUp] : [];
+  }
+
+  if (typeof normalized.user_message !== 'string') {
+    normalized.user_message =
+      typeof report.raw_user_visible_output === 'string' ? report.raw_user_visible_output : `${report.summary ?? ''}`;
+  }
+
+  if (!normalized.git || typeof normalized.git !== 'object' || Array.isArray(normalized.git)) {
+    const git = {};
+
+    if (typeof report.commit_hash === 'string' && report.commit_hash.trim()) {
+      git.commit_hash = report.commit_hash.trim();
+    }
+
+    if (typeof report.push_succeeded === 'boolean') {
+      git.push_succeeded = report.push_succeeded;
+    }
+
+    if (Object.keys(git).length > 0) {
+      normalized.git = git;
+    }
+  }
+
+  delete normalized.follow_up;
+  delete normalized.raw_user_visible_output;
+  delete normalized.commit_hash;
+  delete normalized.push_succeeded;
+
+  return normalized;
+}
+
 function extractTrailingJsonObject(value) {
   const normalized = `${value ?? ''}`.trim();
 
@@ -39,17 +80,17 @@ export function parseCodexStructuredReport(value) {
 
   const direct = parseJsonObject(normalized);
   if (direct) {
-    return direct;
+    return normalizeLegacyStructuredReport(direct);
   }
 
   const marker = 'CODEX_RESULT_JSON:';
   const markerIndex = normalized.lastIndexOf(marker);
 
   if (markerIndex >= 0) {
-    return extractTrailingJsonObject(normalized.slice(markerIndex + marker.length));
+    return normalizeLegacyStructuredReport(extractTrailingJsonObject(normalized.slice(markerIndex + marker.length)));
   }
 
-  return extractTrailingJsonObject(normalized);
+  return normalizeLegacyStructuredReport(extractTrailingJsonObject(normalized));
 }
 
 export function isAcknowledgementLikeText(text) {
@@ -101,14 +142,14 @@ export function hasMeaningfulStructuredWork(report) {
     return false;
   }
 
-  if (`${report.follow_up ?? ''}`.trim()) {
+  if ((report.remaining_work?.length ?? 0) > 0) {
     return false;
   }
 
-  if ((report.files_changed?.length ?? 0) > 0 || (report.verification?.length ?? 0) > 0 || report.commit_hash) {
+  if ((report.files_changed?.length ?? 0) > 0 || (report.verification?.length ?? 0) > 0 || report.git?.commit_hash) {
     return true;
   }
 
-  const candidateText = `${report.summary ?? ''}\n${report.raw_user_visible_output ?? ''}`.trim();
+  const candidateText = `${report.summary ?? ''}\n${report.user_message ?? ''}`.trim();
   return !isAcknowledgementLikeText(candidateText);
 }

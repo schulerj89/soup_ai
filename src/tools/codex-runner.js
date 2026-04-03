@@ -21,10 +21,7 @@ const CODEX_REPORT_SCHEMA = {
     'summary',
     'files_changed',
     'verification',
-    'commit_hash',
-    'push_succeeded',
-    'follow_up',
-    'raw_user_visible_output',
+    'user_message',
   ],
   properties: {
     status: {
@@ -40,16 +37,19 @@ const CODEX_REPORT_SCHEMA = {
       type: 'array',
       items: { type: 'string' },
     },
-    commit_hash: {
-      anyOf: [{ type: 'string' }, { type: 'null' }],
+    remaining_work: {
+      type: 'array',
+      items: { type: 'string' },
     },
-    push_succeeded: {
-      anyOf: [{ type: 'boolean' }, { type: 'null' }],
+    git: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        commit_hash: { type: 'string' },
+        push_succeeded: { type: 'boolean' },
+      },
     },
-    follow_up: {
-      anyOf: [{ type: 'string' }, { type: 'null' }],
-    },
-    raw_user_visible_output: { type: 'string' },
+    user_message: { type: 'string' },
   },
 };
 

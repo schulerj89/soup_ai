@@ -317,7 +317,7 @@ test('parseCodexStructuredReport accepts a marker-delimited JSON ending', () => 
         'Updated the requested files and ran tests.',
         '',
         'CODEX_RESULT_JSON:',
-        '{"status":"completed","summary":"Updated files.","files_changed":["src/example.js"],"verification":["npm test"],"commit_hash":null,"push_succeeded":null,"follow_up":null,"raw_user_visible_output":"Updated the requested files and ran tests."}',
+        '{"status":"completed","summary":"Updated files.","files_changed":["src/example.js"],"verification":["npm test"],"remaining_work":[],"user_message":"Updated the requested files and ran tests."}',
       ].join('\n'),
     ),
     {
@@ -325,10 +325,8 @@ test('parseCodexStructuredReport accepts a marker-delimited JSON ending', () => 
       summary: 'Updated files.',
       files_changed: ['src/example.js'],
       verification: ['npm test'],
-      commit_hash: null,
-      push_succeeded: null,
-      follow_up: null,
-      raw_user_visible_output: 'Updated the requested files and ran tests.',
+      remaining_work: [],
+      user_message: 'Updated the requested files and ran tests.',
     },
   );
 });
@@ -336,17 +334,15 @@ test('parseCodexStructuredReport accepts a marker-delimited JSON ending', () => 
 test('parseCodexStructuredReport falls back to the trailing JSON object without a marker', () => {
   assert.deepEqual(
     parseCodexStructuredReport(
-      'Applied the change.\n{"status":"failed","summary":"Blocked on follow-up.","files_changed":[],"verification":[],"commit_hash":null,"push_succeeded":null,"follow_up":"Need approval.","raw_user_visible_output":"Blocked on follow-up."}',
+      'Applied the change.\n{"status":"failed","summary":"Blocked on follow-up.","files_changed":[],"verification":[],"remaining_work":["Need approval."],"user_message":"Blocked on follow-up."}',
     ),
     {
       status: 'failed',
       summary: 'Blocked on follow-up.',
       files_changed: [],
       verification: [],
-      commit_hash: null,
-      push_succeeded: null,
-      follow_up: 'Need approval.',
-      raw_user_visible_output: 'Blocked on follow-up.',
+      remaining_work: ['Need approval.'],
+      user_message: 'Blocked on follow-up.',
     },
   );
 });

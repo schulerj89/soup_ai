@@ -129,12 +129,14 @@ export function buildCodexExecutionPrompt({ taskTitle, executionPlan }) {
   lines.push('- Use `completed` only when the requested work is actually finished.');
   lines.push('- Use `partial` when some work was done but follow-up is still required.');
   lines.push('- Use `failed` when the requested work was not completed.');
+  lines.push('- Use `remaining_work` for unfinished required work, not optional suggestions.');
+  lines.push('- Include `git` only if commit or push was attempted.');
   lines.push('- Put that JSON object after the exact marker `CODEX_RESULT_JSON:`.');
   lines.push('- Do not write any text after the JSON object.');
   lines.push('');
   lines.push('Required ending format:');
   lines.push('CODEX_RESULT_JSON:');
-  lines.push('{"status":"completed","summary":"...","files_changed":[],"verification":[],"commit_hash":null,"push_succeeded":null,"follow_up":null,"raw_user_visible_output":"..."}');
+  lines.push('{"status":"completed","summary":"...","files_changed":[],"verification":[],"remaining_work":[],"user_message":"..."}');
   lines.push('');
 
   return lines.join('\n').trim();
@@ -187,12 +189,12 @@ function hasRecordedWork(result) {
     (structuredStatus.kind === 'valid' && structuredStatus.value === 'completed') ||
     (Array.isArray(report.files_changed) && report.files_changed.length > 0) ||
     (Array.isArray(report.verification) && report.verification.length > 0) ||
-    Boolean(report.commit_hash)
+    Boolean(report.git?.commit_hash)
   );
 }
 
 function reportHasFollowUp(report) {
-  return `${report?.follow_up ?? ''}`.trim().length > 0;
+  return Array.isArray(report?.remaining_work) && report.remaining_work.some((item) => `${item ?? ''}`.trim().length > 0);
 }
 
 function normalizeStructuredStatus(report) {
