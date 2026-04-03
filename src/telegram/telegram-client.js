@@ -1,3 +1,17 @@
+export class TelegramApiError extends Error {
+  constructor({ statusCode = null, description = null, retryAfterSeconds = null }) {
+    const baseMessage = description
+      ? `Telegram API error: ${description}`
+      : statusCode
+        ? `Telegram API HTTP ${statusCode}`
+        : 'Telegram API request failed';
+    super(baseMessage);
+    this.name = 'TelegramApiError';
+    this.statusCode = statusCode;
+    this.retryAfterSeconds = Number.isFinite(retryAfterSeconds) ? retryAfterSeconds : null;
+  }
+}
+
 export class TelegramClient {
   constructor({ token, apiBaseUrl = 'https://api.telegram.org', fetchImpl = globalThis.fetch }) {
     this.token = token;
@@ -15,13 +29,28 @@ export class TelegramClient {
     });
 
     if (!response.ok) {
-      throw new Error(`Telegram API HTTP ${response.status}`);
+      let body = null;
+      try {
+        body = await response.json();
+      } catch {
+        body = null;
+      }
+
+      throw new TelegramApiError({
+        statusCode: response.status,
+        description: body?.description ?? null,
+        retryAfterSeconds: body?.parameters?.retry_after ?? null,
+      });
     }
 
     const data = await response.json();
 
     if (!data.ok) {
-      throw new Error(`Telegram API error: ${data.description ?? 'unknown error'}`);
+      throw new TelegramApiError({
+        statusCode: response.status,
+        description: data.description ?? 'unknown error',
+        retryAfterSeconds: data?.parameters?.retry_after ?? null,
+      });
     }
 
     return data.result;

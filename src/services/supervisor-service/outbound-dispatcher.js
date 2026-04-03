@@ -23,6 +23,10 @@ export class OutboundMessageDispatcher {
         const message = error instanceof Error ? error.message : `${error}`;
         this.db.markOutboundFailed(row.id, message);
         this.logger.error(`Outbound message ${row.id} failed: ${message}`);
+
+        if (error && typeof error === 'object' && error.statusCode === 429) {
+          break;
+        }
       }
     }
 

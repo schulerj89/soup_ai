@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { TelegramClient } from '../src/telegram/telegram-client.js';
+import { TelegramApiError, TelegramClient } from '../src/telegram/telegram-client.js';
 
 test('TelegramClient sendMessage posts reply parameters only when needed', async () => {
   const requests = [];
@@ -74,4 +74,32 @@ test('TelegramClient downloads file bytes and rejects HTTP failures', async () =
 
   assert.equal(bytes.toString('utf8'), 'ABC');
   await assert.rejects(client.call('getMe'), /Telegram API HTTP 503/);
+});
+
+test('TelegramClient preserves retry_after details on HTTP 429 responses', async () => {
+  const client = new TelegramClient({
+    token: 'test-token',
+    fetchImpl: async () => ({
+      ok: false,
+      status: 429,
+      async json() {
+        return {
+          ok: false,
+          description: 'Too Many Requests: retry later',
+          parameters: { retry_after: 17 },
+        };
+      },
+    }),
+  });
+
+  await assert.rejects(
+    async () => client.call('getMe'),
+    (error) => {
+      assert.ok(error instanceof TelegramApiError);
+      assert.equal(error.statusCode, 429);
+      assert.equal(error.retryAfterSeconds, 17);
+      assert.match(error.message, /Too Many Requests/);
+      return true;
+    },
+  );
 });

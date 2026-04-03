@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { OutboundMessageDispatcher } from '../src/services/supervisor-service/outbound-dispatcher.js';
-import { createTestDb } from '../support/unit-helpers.js';
+import { createSilentLogger, createTestDb } from '../support/unit-helpers.js';
 
 test('OutboundMessageDispatcher sends pending messages and stores Telegram metadata', async () => {
   const db = createTestDb();
@@ -76,6 +76,47 @@ test('OutboundMessageDispatcher keeps failed sends queued for retry and records 
     assert.equal(stored.status, 'pending_send');
     assert.equal(stored.last_error, 'temporary telegram failure');
     assert.match(errors[0], /Outbound message .* temporary telegram failure/);
+  } finally {
+    db.close();
+  }
+});
+
+test('OutboundMessageDispatcher stops the current flush after a Telegram 429 rate limit', async () => {
+  const db = createTestDb();
+  const attempts = [];
+
+  try {
+    const first = db.queueOutboundMessage({
+      chatId: 'chat-1',
+      text: 'First',
+    });
+    const second = db.queueOutboundMessage({
+      chatId: 'chat-1',
+      text: 'Second',
+    });
+
+    const dispatcher = new OutboundMessageDispatcher({
+      db,
+      telegramClient: {
+        sendMessage: async ({ text }) => {
+          attempts.push(text);
+          const error = new Error('Telegram API error: Too Many Requests');
+          error.statusCode = 429;
+          error.retryAfterSeconds = 10;
+          throw error;
+        },
+      },
+      logger: createSilentLogger(),
+    });
+
+    const flushed = await dispatcher.flush(10);
+    const firstStored = db.getMessageById(first.id);
+    const secondStored = db.getMessageById(second.id);
+
+    assert.equal(flushed, 0);
+    assert.deepEqual(attempts, ['First']);
+    assert.equal(firstStored.status, 'pending_send');
+    assert.equal(secondStored.status, 'pending_send');
   } finally {
     db.close();
   }

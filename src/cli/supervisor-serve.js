@@ -12,6 +12,17 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function computeFailureDelayMs(error, consecutiveFailures) {
+  const retryAfterSeconds =
+    error && typeof error === 'object' && Number.isFinite(error.retryAfterSeconds) ? error.retryAfterSeconds : null;
+
+  if (retryAfterSeconds != null) {
+    return Math.max(1000, retryAfterSeconds * 1000);
+  }
+
+  return Math.min(30000, 1000 * 2 ** Math.min(consecutiveFailures - 1, 5));
+}
+
 async function main() {
   const config = loadConfig();
   const db = new AppDb({ dbPath: config.dbPath });
@@ -81,9 +92,10 @@ async function main() {
         }
       } catch (error) {
         consecutiveFailures += 1;
-        const delayMs = Math.min(30000, 1000 * 2 ** Math.min(consecutiveFailures - 1, 5));
+        const delayMs = computeFailureDelayMs(error, consecutiveFailures);
         const message = error instanceof Error ? error.stack ?? error.message : `${error}`;
         console.error(`[Soup AI] supervisor:serve cycle failed (${consecutiveFailures}): ${message}`);
+        console.error(`[Soup AI] supervisor:serve backing off for ${delayMs}ms before retry.`);
 
         if (!stopping) {
           await sleep(delayMs);
