@@ -272,6 +272,44 @@ test('CodexRunner terminates the full process tree when a Windows codex command 
   }
 });
 
+test('CodexRunner closes stdin immediately after spawn so codex does not wait for extra input', async () => {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'soup-ai-codex-stdin-'));
+  const workingDirectory = path.join(tempRoot, 'workspace');
+  fs.mkdirSync(workingDirectory, { recursive: true });
+
+  const child = new EventEmitter();
+  child.pid = 9876;
+  child.stdout = new EventEmitter();
+  child.stderr = new EventEmitter();
+
+  let stdinClosed = false;
+  child.stdin = {
+    end() {
+      stdinClosed = true;
+      setImmediate(() => child.emit('close', 0, null));
+    },
+  };
+
+  const runner = new CodexRunner({
+    codexBin: 'codex',
+    workspaceRoot: tempRoot,
+    codexModel: null,
+    codexEnableSearch: false,
+    timeoutMs: 1000,
+    codexHome: tempRoot,
+    spawnImpl: () => child,
+  });
+
+  const result = await runner.run({
+    prompt: 'stdin close test',
+    workingDirectory,
+  });
+
+  assert.equal(stdinClosed, true);
+  assert.equal(result.exitCode, 0);
+  assert.equal(result.timedOut, false);
+});
+
 test('parseCodexStructuredReport accepts a marker-delimited JSON ending', () => {
   assert.deepEqual(
     parseCodexStructuredReport(

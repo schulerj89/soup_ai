@@ -24,6 +24,14 @@ export class CodexProcessRunner {
         windowsHide: true,
       });
 
+      // `codex exec` can wait for more prompt content from stdin if the pipe stays open.
+      // We pass the full prompt as an argument, so close stdin immediately.
+      try {
+        child.stdin?.end();
+      } catch {
+        // Ignore stdin closure failures and let normal process handling continue.
+      }
+
       let stdout = '';
       let stderr = '';
       let settled = false;
