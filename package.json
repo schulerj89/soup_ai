@@ -16,6 +16,7 @@
     "supervisor:serve": "node src/cli/supervisor-serve.js",
     "task:run": "cmd /c scripts\\run-supervisor.cmd",
     "task:register": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/register-task.ps1",
+    "task:stop": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/stop-task.ps1",
     "task:unregister": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/unregister-task.ps1",
     "test": "node --test"
   },

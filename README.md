@@ -86,6 +86,7 @@ npm run send:message -- --text "Manual outbound test"
 npm run supervisor:once
 npm run supervisor:serve
 npm run task:register
+npm run task:stop
 npm run task:unregister
 npm test
 ```
