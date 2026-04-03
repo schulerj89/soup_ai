@@ -82,12 +82,38 @@ npm test
 
 ## Telegram commands
 
-- `/help`
-- `/health`
-- `/status`
-- `/tasks`
+- `/help` replies with the built-in command list.
+- `/health` is an alias for `/status`.
+- `/status` replies with the current supervisor snapshot:
+  - pending and running job counts
+  - pending outbound message count
+  - running task count
+  - active Codex telemetry when a local run is in progress, including task ID, PID, title, start/timeout times, stdout/stderr byte counts, last output time, and the last output file path
+  - current conversation state for that chat, including generation, active conversation ID, and the last reset timestamp and reason
+- `/tasks` shows the five most recent tracked tasks with status and result summary.
+- `/memory` shows the current conversation memory summary, durable facts, durable profile, and recent notes for the chat.
+- `/reset` archives the current conversation, starts a fresh one, and preserves curated memory for reseeding.
 
 Anything else is treated as a supervisor request. Soup AI either replies directly or starts a Codex task and posts a follow-up summary when it finishes.
+
+Example status reply:
+
+```text
+Soup AI health
+pendingJobs: 0
+runningJobs: 0
+pendingOutbound: 0
+runningTasks: 1
+activeCodexTaskId: 77
+activeCodexPid: 4321
+activeCodexTitle: Inspect repo state
+activeCodexStartedAt: 2026-04-02T22:42:13.746Z
+activeCodexTimeoutAt: 2026-04-02T22:57:13.746Z
+conversationGeneration: 0
+activeConversationId: conv_1
+lastResetAt: (never)
+lastResetReason: (none)
+```
 
 ## Configuration
 
