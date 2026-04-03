@@ -45,7 +45,10 @@ const CODEX_REPORT_SCHEMA = {
       type: 'object',
       additionalProperties: false,
       properties: {
-        commit_hash: { type: 'string' },
+        commit_hashes: {
+          type: 'array',
+          items: { type: 'string' },
+        },
         push_succeeded: { type: 'boolean' },
       },
     },

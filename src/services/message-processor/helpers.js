@@ -189,7 +189,7 @@ function hasRecordedWork(result) {
     (structuredStatus.kind === 'valid' && structuredStatus.value === 'completed') ||
     (Array.isArray(report.files_changed) && report.files_changed.length > 0) ||
     (Array.isArray(report.verification) && report.verification.length > 0) ||
-    Boolean(report.git?.commit_hash)
+    (Array.isArray(report.git?.commit_hashes) && report.git.commit_hashes.length > 0)
   );
 }
 

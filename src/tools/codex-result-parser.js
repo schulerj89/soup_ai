@@ -32,7 +32,7 @@ function normalizeLegacyStructuredReport(report) {
     const git = {};
 
     if (typeof report.commit_hash === 'string' && report.commit_hash.trim()) {
-      git.commit_hash = report.commit_hash.trim();
+      git.commit_hashes = [report.commit_hash.trim()];
     }
 
     if (typeof report.push_succeeded === 'boolean') {
@@ -41,6 +41,23 @@ function normalizeLegacyStructuredReport(report) {
 
     if (Object.keys(git).length > 0) {
       normalized.git = git;
+    }
+  }
+
+  if (normalized.git && typeof normalized.git === 'object' && !Array.isArray(normalized.git)) {
+    if (!Array.isArray(normalized.git.commit_hashes)) {
+      const commitHash = typeof normalized.git.commit_hash === 'string' ? normalized.git.commit_hash.trim() : '';
+      normalized.git.commit_hashes = commitHash ? [commitHash] : [];
+    } else {
+      normalized.git.commit_hashes = normalized.git.commit_hashes
+        .map((value) => `${value ?? ''}`.trim())
+        .filter(Boolean);
+    }
+
+    delete normalized.git.commit_hash;
+
+    if (normalized.git.commit_hashes.length === 0 && typeof normalized.git.push_succeeded !== 'boolean') {
+      delete normalized.git;
     }
   }
 
@@ -146,7 +163,7 @@ export function hasMeaningfulStructuredWork(report) {
     return false;
   }
 
-  if ((report.files_changed?.length ?? 0) > 0 || (report.verification?.length ?? 0) > 0 || report.git?.commit_hash) {
+  if ((report.files_changed?.length ?? 0) > 0 || (report.verification?.length ?? 0) > 0 || (report.git?.commit_hashes?.length ?? 0) > 0) {
     return true;
   }
 

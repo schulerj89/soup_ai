@@ -317,7 +317,7 @@ test('parseCodexStructuredReport accepts a marker-delimited JSON ending', () => 
         'Updated the requested files and ran tests.',
         '',
         'CODEX_RESULT_JSON:',
-        '{"status":"completed","summary":"Updated files.","files_changed":["src/example.js"],"verification":["npm test"],"remaining_work":[],"user_message":"Updated the requested files and ran tests."}',
+        '{"status":"completed","summary":"Updated files.","files_changed":["src/example.js"],"verification":["npm test"],"remaining_work":[],"git":{"commit_hashes":["abc123","def456"],"push_succeeded":true},"user_message":"Updated the requested files and ran tests."}',
       ].join('\n'),
     ),
     {
@@ -326,6 +326,10 @@ test('parseCodexStructuredReport accepts a marker-delimited JSON ending', () => 
       files_changed: ['src/example.js'],
       verification: ['npm test'],
       remaining_work: [],
+      git: {
+        commit_hashes: ['abc123', 'def456'],
+        push_succeeded: true,
+      },
       user_message: 'Updated the requested files and ran tests.',
     },
   );
@@ -343,6 +347,26 @@ test('parseCodexStructuredReport falls back to the trailing JSON object without 
       verification: [],
       remaining_work: ['Need approval.'],
       user_message: 'Blocked on follow-up.',
+    },
+  );
+});
+
+test('parseCodexStructuredReport normalizes legacy single commit hash into commit_hashes', () => {
+  assert.deepEqual(
+    parseCodexStructuredReport(
+      'Applied the change.\n{"status":"completed","summary":"Completed work.","files_changed":["src/example.js"],"verification":["npm test"],"commit_hash":"abc123","push_succeeded":true,"follow_up":null,"raw_user_visible_output":"Completed work."}',
+    ),
+    {
+      status: 'completed',
+      summary: 'Completed work.',
+      files_changed: ['src/example.js'],
+      verification: ['npm test'],
+      remaining_work: [],
+      git: {
+        commit_hashes: ['abc123'],
+        push_succeeded: true,
+      },
+      user_message: 'Completed work.',
     },
   );
 });
