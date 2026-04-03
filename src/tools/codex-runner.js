@@ -44,12 +44,15 @@ const CODEX_REPORT_SCHEMA = {
     git: {
       type: 'object',
       additionalProperties: false,
+      required: ['commit_hashes', 'push_succeeded'],
       properties: {
         commit_hashes: {
           type: 'array',
           items: { type: 'string' },
         },
-        push_succeeded: { type: 'boolean' },
+        push_succeeded: {
+          type: ['boolean', 'null'],
+        },
       },
     },
     user_message: { type: 'string' },

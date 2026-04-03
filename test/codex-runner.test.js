@@ -310,6 +310,45 @@ test('CodexRunner closes stdin immediately after spawn so codex does not wait fo
   assert.equal(result.timedOut, false);
 });
 
+test('CodexRunner writes a strict git schema compatible with Codex structured output validation', async () => {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'soup-ai-codex-schema-'));
+  const workingDirectory = path.join(tempRoot, 'workspace');
+  fs.mkdirSync(workingDirectory, { recursive: true });
+
+  const child = new EventEmitter();
+  child.pid = 2468;
+  child.stdout = new EventEmitter();
+  child.stderr = new EventEmitter();
+  child.stdin = {
+    end() {
+      setImmediate(() => child.emit('close', 0, null));
+    },
+  };
+
+  const runner = new CodexRunner({
+    codexBin: 'codex',
+    workspaceRoot: tempRoot,
+    codexModel: null,
+    codexEnableSearch: false,
+    timeoutMs: 1000,
+    codexHome: tempRoot,
+    spawnImpl: () => child,
+  });
+
+  let schema = null;
+
+  await runner.run({
+    prompt: 'schema validation test',
+    workingDirectory,
+    onSpawn: ({ outputSchemaPath }) => {
+      schema = JSON.parse(fs.readFileSync(outputSchemaPath, 'utf8'));
+    },
+  });
+
+  assert.deepEqual(schema?.properties?.git?.required, ['commit_hashes', 'push_succeeded']);
+  assert.deepEqual(schema?.properties?.git?.properties?.push_succeeded?.type, ['boolean', 'null']);
+});
+
 test('parseCodexStructuredReport accepts a marker-delimited JSON ending', () => {
   assert.deepEqual(
     parseCodexStructuredReport(
