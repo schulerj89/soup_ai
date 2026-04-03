@@ -113,7 +113,7 @@ test('MessageProcessor lets the supervisor agent choose Codex tool usage', async
             exitCode: 0,
             timedOut: false,
             structuredReport: {
-              completed: true,
+              status: 'completed',
               summary: 'Changed files and ran tests.',
               files_changed: ['src/example.js'],
               verification: ['npm test'],
@@ -380,7 +380,7 @@ test('MessageProcessor reports acknowledgement-only Codex runs as incomplete whe
           exitCode: 0,
           timedOut: false,
           structuredReport: {
-            completed: false,
+            status: 'failed',
             summary: 'Noted the request.',
             files_changed: [],
             verification: [],
@@ -451,7 +451,7 @@ test('MessageProcessor reports partial Codex runs when changes were made but the
           exitCode: 0,
           timedOut: false,
           structuredReport: {
-            completed: true,
+            status: 'partial',
             summary: 'Created a placeholder README.',
             files_changed: ['telegram_codex_e2e/README.md'],
             verification: ['Read back the placeholder README.'],
@@ -526,7 +526,7 @@ test('MessageProcessor keeps follow-up-required Codex runs out of completed stat
           exitCode: 0,
           timedOut: false,
           structuredReport: {
-            completed: true,
+            status: 'partial',
             summary: 'Applied part of the migration.',
             files_changed: ['src/migrate.js'],
             verification: ['npm test'],
@@ -602,7 +602,7 @@ test('MessageProcessor renders exact file contents explicitly for Codex', async 
             exitCode: 0,
             timedOut: false,
             structuredReport: {
-              completed: true,
+              status: 'completed',
               summary: 'Created the README.',
               files_changed: ['telegram_codex_e2e/readme.md'],
               verification: ['Read the file and confirm it matches exactly.'],

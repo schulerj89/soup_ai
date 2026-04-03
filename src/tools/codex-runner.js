@@ -17,7 +17,7 @@ const CODEX_REPORT_SCHEMA = {
   type: 'object',
   additionalProperties: false,
   required: [
-    'completed',
+    'status',
     'summary',
     'files_changed',
     'verification',
@@ -27,7 +27,10 @@ const CODEX_REPORT_SCHEMA = {
     'raw_user_visible_output',
   ],
   properties: {
-    completed: { type: 'boolean' },
+    status: {
+      type: 'string',
+      enum: ['completed', 'partial', 'failed'],
+    },
     summary: { type: 'string' },
     files_changed: {
       type: 'array',

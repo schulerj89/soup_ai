@@ -88,7 +88,16 @@ export function extractFinalAgentMessage(stdout) {
 }
 
 export function hasMeaningfulStructuredWork(report) {
-  if (!report || report.completed !== true) {
+  if (!report) {
+    return false;
+  }
+
+  const status = `${report.status ?? ''}`.trim().toLowerCase();
+  const completed =
+    status === 'completed' ||
+    (status !== 'partial' && status !== 'failed' && report.completed === true);
+
+  if (!completed) {
     return false;
   }
 

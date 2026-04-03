@@ -125,12 +125,16 @@ export function buildCodexExecutionPrompt({ taskTitle, executionPlan }) {
   lines.push('Final response requirements:');
   lines.push('- Do the requested work before producing the final response.');
   lines.push('- End the final response with a JSON object that matches the provided Codex output schema.');
+  lines.push('- Set `status` to one of `completed`, `partial`, or `failed` so the outcome is explicit.');
+  lines.push('- Use `completed` only when the requested work is actually finished.');
+  lines.push('- Use `partial` when some work was done but follow-up is still required.');
+  lines.push('- Use `failed` when the requested work was not completed.');
   lines.push('- Put that JSON object after the exact marker `CODEX_RESULT_JSON:`.');
   lines.push('- Do not write any text after the JSON object.');
   lines.push('');
   lines.push('Required ending format:');
   lines.push('CODEX_RESULT_JSON:');
-  lines.push('{"completed":true,"summary":"...","files_changed":[],"verification":[],"commit_hash":null,"push_succeeded":null,"follow_up":null,"raw_user_visible_output":"..."}');
+  lines.push('{"status":"completed","summary":"...","files_changed":[],"verification":[],"commit_hash":null,"push_succeeded":null,"follow_up":null,"raw_user_visible_output":"..."}');
   lines.push('');
 
   return lines.join('\n').trim();
@@ -178,7 +182,7 @@ function hasRecordedWork(result) {
   }
 
   return (
-    report.completed === true ||
+    normalizeStructuredStatus(report) === 'completed' ||
     (Array.isArray(report.files_changed) && report.files_changed.length > 0) ||
     (Array.isArray(report.verification) && report.verification.length > 0) ||
     Boolean(report.commit_hash)
@@ -189,6 +193,11 @@ function reportHasFollowUp(report) {
   return `${report?.follow_up ?? ''}`.trim().length > 0;
 }
 
+function normalizeStructuredStatus(report) {
+  const status = `${report?.status ?? ''}`.trim().toLowerCase();
+  return ['completed', 'partial', 'failed'].includes(status) ? status : null;
+}
+
 export function classifyCodexResult(result) {
   if (result.exitCode !== 0) {
     return 'failed';
@@ -197,6 +206,12 @@ export function classifyCodexResult(result) {
   const report = result?.structuredReport;
 
   if (report && typeof report === 'object') {
+    const explicitStatus = normalizeStructuredStatus(report);
+
+    if (explicitStatus) {
+      return explicitStatus;
+    }
+
     if (report.completed === true && !reportHasFollowUp(report) && result.acknowledgedOnly !== true) {
       return 'completed';
     }

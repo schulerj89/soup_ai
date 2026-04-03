@@ -317,11 +317,11 @@ test('parseCodexStructuredReport accepts a marker-delimited JSON ending', () => 
         'Updated the requested files and ran tests.',
         '',
         'CODEX_RESULT_JSON:',
-        '{"completed":true,"summary":"Updated files.","files_changed":["src/example.js"],"verification":["npm test"],"commit_hash":null,"push_succeeded":null,"follow_up":null,"raw_user_visible_output":"Updated the requested files and ran tests."}',
+        '{"status":"completed","summary":"Updated files.","files_changed":["src/example.js"],"verification":["npm test"],"commit_hash":null,"push_succeeded":null,"follow_up":null,"raw_user_visible_output":"Updated the requested files and ran tests."}',
       ].join('\n'),
     ),
     {
-      completed: true,
+      status: 'completed',
       summary: 'Updated files.',
       files_changed: ['src/example.js'],
       verification: ['npm test'],
@@ -336,10 +336,10 @@ test('parseCodexStructuredReport accepts a marker-delimited JSON ending', () => 
 test('parseCodexStructuredReport falls back to the trailing JSON object without a marker', () => {
   assert.deepEqual(
     parseCodexStructuredReport(
-      'Applied the change.\n{"completed":false,"summary":"Blocked on follow-up.","files_changed":[],"verification":[],"commit_hash":null,"push_succeeded":null,"follow_up":"Need approval.","raw_user_visible_output":"Blocked on follow-up."}',
+      'Applied the change.\n{"status":"failed","summary":"Blocked on follow-up.","files_changed":[],"verification":[],"commit_hash":null,"push_succeeded":null,"follow_up":"Need approval.","raw_user_visible_output":"Blocked on follow-up."}',
     ),
     {
-      completed: false,
+      status: 'failed',
       summary: 'Blocked on follow-up.',
       files_changed: [],
       verification: [],
