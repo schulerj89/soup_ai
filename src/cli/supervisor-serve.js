@@ -63,6 +63,7 @@ export async function runSupervisorServe({
 
   let keepAwakeHandle = null;
   let runError = null;
+  let cleanupError = null;
 
   try {
     keepAwakeHandle = await createKeepAwake();
@@ -155,8 +156,12 @@ export async function runSupervisorServe({
     db.close();
 
     if (releaseError && !runError) {
-      throw releaseError;
+      cleanupError = releaseError;
     }
+  }
+
+  if (cleanupError) {
+    throw cleanupError;
   }
 }
 

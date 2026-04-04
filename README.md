@@ -80,6 +80,7 @@ Requests that explicitly ask to use Codex are routed to execution. Informational
 ```powershell
 npm run discover:telegram
 npm run inspect:codex
+npm run lint
 npm run send:message -- --text "Manual outbound test"
 npm run supervisor:once
 npm run supervisor:serve

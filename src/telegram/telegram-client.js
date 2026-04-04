@@ -33,11 +33,11 @@ export class TelegramClient {
     });
 
     if (!response.ok) {
-      let body = null;
+      let body;
       try {
         body = await response.json();
       } catch {
-        body = null;
+        body = undefined;
       }
 
       throw new TelegramApiError({

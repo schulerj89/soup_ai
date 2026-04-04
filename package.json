@@ -11,6 +11,7 @@
     "setup": "node --disable-warning=ExperimentalWarning src/cli/setup.js",
     "discover:telegram": "node src/cli/discover-telegram.js",
     "inspect:codex": "node src/cli/inspect-codex.js",
+    "lint": "eslint .",
     "send:message": "node src/cli/send-message.js",
     "supervisor:once": "node src/cli/supervisor-once.js",
     "supervisor:serve": "node src/cli/supervisor-serve.js",
@@ -45,5 +46,10 @@
     "koffi": "^2.15.4",
     "react": "^19.2.4",
     "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "eslint": "^10.2.0",
+    "globals": "^17.4.0"
   }
 }

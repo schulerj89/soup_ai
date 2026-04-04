@@ -81,9 +81,18 @@ const reservedWindowsFileNames = new Set([
   'lpt9',
 ]);
 
+function replaceInvalidWindowsFileNameChars(value) {
+  return Array.from(`${value}`)
+    .map((character) => {
+      const codePoint = character.codePointAt(0) ?? 0;
+      return /[<>:"/\\|?*]/.test(character) || codePoint <= 31 ? '-' : character;
+    })
+    .join('');
+}
+
 function sanitizeTempFileName(fileName, fallbackName) {
   const normalized = `${fileName ?? ''}`.trim();
-  const candidate = normalized ? normalized.replace(/[<>:"/\\|?*\x00-\x1f]+/g, '-') : fallbackName;
+  const candidate = normalized ? replaceInvalidWindowsFileNameChars(normalized) : fallbackName;
   const trimmed = candidate.replace(/[. ]+$/g, '').replace(/^\.+/, '').trim();
 
   if (!trimmed) {
