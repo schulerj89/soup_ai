@@ -37,6 +37,7 @@ test('buildEnvFileContents preserves existing advanced settings and normalizes p
     existingEnv: {
       TELEGRAM_API_BASE_URL: 'https://example.invalid',
       TELEGRAM_POLL_LIMIT: '50',
+      SUPERVISOR_ENABLE_BACKGROUND_CODEX_TASKS: 'true',
       CODEX_MODEL: 'gpt-5-codex',
       CODEX_TIMEOUT_MS: '120000',
     },
@@ -59,6 +60,7 @@ test('buildEnvFileContents preserves existing advanced settings and normalizes p
   assert.match(contents, /SUPERVISOR_DB_PATH=.\/data\/soup-ai.sqlite/);
   assert.match(contents, /SUPERVISOR_WORKSPACE_ROOT=C:\/Users\/joshs\/Projects/);
   assert.match(contents, /TELEGRAM_API_BASE_URL=https:\/\/example.invalid/);
+  assert.match(contents, /SUPERVISOR_ENABLE_BACKGROUND_CODEX_TASKS=true/);
   assert.match(contents, /CODEX_MODEL=gpt-5-codex/);
   assert.match(contents, /CODEX_TIMEOUT_MS=120000/);
 });

@@ -72,6 +72,7 @@ export function buildEnvFileContents({ existingEnv, values }) {
     `SUPERVISOR_DB_PATH=${normalizePathForEnv(values.dbPath)}`,
     `SUPERVISOR_WORKSPACE_ROOT=${normalizePathForEnv(values.workspaceRoot)}`,
     `SUPERVISOR_MAX_JOBS_PER_RUN=${existingEnv.SUPERVISOR_MAX_JOBS_PER_RUN ?? '5'}`,
+    `SUPERVISOR_ENABLE_BACKGROUND_CODEX_TASKS=${existingEnv.SUPERVISOR_ENABLE_BACKGROUND_CODEX_TASKS ?? 'false'}`,
     `CODEX_BIN=${values.codexBin}`,
     `CODEX_MODEL=${existingEnv.CODEX_MODEL ?? ''}`,
     `CODEX_ENABLE_SEARCH=${values.codexSearch}`,
