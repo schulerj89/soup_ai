@@ -9,7 +9,7 @@
 - Transcribes audio locally through the OpenAI transcription API before processing
 - Uses an execution planner to choose `answer_directly` or `run_codex`
 - Answers direct questions through the OpenAI Agents SDK, with hosted web search available for current topics
-- Runs local work through `codex exec` and stores task records plus tool-run details
+- Runs local work through `codex exec`, can queue Codex work in the background, and stores task records plus tool-run details
 - Summarizes older chat context into compact session memory
 - Retries outbound Telegram delivery on later runs if sending fails
 - Uses a lease so overlapping scheduler runs do not process the queue at the same time
@@ -77,6 +77,56 @@ The registration script now creates explicit Task Scheduler settings instead of 
 - prefers background `S4U` logon under your current user account
 - falls back to a basic `schtasks` registration with a warning if Windows blocks the richer task profile
 
+## Background Codex workflow
+
+In persistent mode, `supervisor:serve` now treats Codex work as background work by default:
+
+- Soup AI acknowledges the Telegram request immediately
+- it queues a tracked task in SQLite
+- the supervisor starts eligible queued tasks on later serve cycles
+- when the task finishes, Soup AI sends the result back to Telegram automatically
+
+The current concurrency model is intentionally simple:
+
+- only one `codex` task runs at a time
+- additional Codex requests can still be queued
+- direct replies, status checks, and message ingestion continue while a Codex task is running
+
+This makes the Telegram workflow feel more like a local job queue than a synchronous chat request.
+
+### Example workflow
+
+Telegram prompt:
+
+```text
+Could you have Codex inspect soup_ai, summarize how memory is stored, and tell me whether it uses SQLite or local files?
+```
+
+Typical behavior:
+
+1. Soup AI replies with a short acknowledgement.
+2. It queues a task such as `Inspect soup_ai memory storage`.
+3. `/tasks` shows the queued or running task.
+4. When the Codex run completes, Soup AI posts the final summary back to Telegram.
+
+Example for a longer multi-step task:
+
+```text
+Use Codex to update the README, run tests, and commit the change if the tests pass.
+```
+
+For multi-step work like that, Soup AI now adds a lightweight execution checklist into the task record and the Codex prompt. That helps it track progress and render clearer `/tasks` output.
+
+### Prompting guidance
+
+Prompts that explicitly ask to use Codex are routed to execution, not to the direct-answer path. Good examples:
+
+- `Have Codex inspect this repo and summarize the memory model`
+- `Use Codex to fix the failing test and commit it`
+- `Run Codex on soup_ai and check why Telegram is rate limiting us`
+
+If the request is only informational and does not ask for local work, Soup AI still answers directly. If you want local repo work, say so explicitly.
+
 ## Useful commands
 
 ```powershell
@@ -98,10 +148,11 @@ npm test
 - `/status` replies with the current supervisor snapshot:
   - pending and running job counts
   - pending outbound message count
+  - queued task count
   - running task count
   - active Codex telemetry when a local run is in progress, including task ID, PID, title, start/timeout times, stdout/stderr byte counts, last output time, and the last output file path
   - current conversation state for that chat, including generation, active conversation ID, and the last reset timestamp and reason
-- `/tasks` shows the five most recent tracked tasks with status and result summary.
+- `/tasks` shows the five most recent tracked tasks with status, tool type, last progress text, checklist progress when present, and result summary.
 - `/memory` shows the current conversation memory summary, durable facts, durable profile, and recent notes for the chat.
 - `/reset` archives the current conversation, starts a fresh one, and preserves curated memory for reseeding.
 
@@ -114,6 +165,7 @@ Soup AI health
 pendingJobs: 0
 runningJobs: 0
 pendingOutbound: 0
+queuedTasks: 1
 runningTasks: 1
 activeCodexTaskId: 77
 activeCodexPid: 4321
@@ -131,6 +183,7 @@ lastResetReason: (none)
 - `.env.example` shows the supported environment variables
 - `SUPERVISOR_WORKSPACE_ROOT` is the hard boundary for local Codex work
 - `SUPERVISOR_DB_PATH` defaults to `./data/soup-ai.sqlite`
+- `SUPERVISOR_ENABLE_BACKGROUND_CODEX_TASKS=true` enables background queuing for Codex tasks; `supervisor:serve` forces this on automatically
 - `OPENAI_MODEL` is used for planning, direct replies, and Codex result summaries
 - `OPENAI_MEMORY_MODEL` is used by the session summarizer and falls back to `OPENAI_MODEL`
 - `OPENAI_TRANSCRIPTION_MODEL` is used for Telegram audio transcription
