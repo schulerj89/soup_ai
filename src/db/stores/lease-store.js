@@ -1,22 +1,23 @@
 export const leaseStoreMethods = {
   acquireLease(key, owner, ttlMs) {
     const now = this.now();
-    const expiresAt = new Date(Date.now() + ttlMs).toISOString();
+    const expiresAt = new Date(new Date(now).getTime() + ttlMs).toISOString();
 
-    const insert = this.db
-      .prepare(
-        `INSERT OR IGNORE INTO leases (key, owner, expires_at, updated_at)
-         VALUES (?, ?, ?, ?)`,
-      )
-      .run(key, owner, expiresAt, now);
+    this.db.exec('BEGIN IMMEDIATE');
 
-    if (insert.changes > 0) {
-      return true;
-    }
+    try {
+      const insert = this.db
+        .prepare(
+          `INSERT OR IGNORE INTO leases (key, owner, expires_at, updated_at)
+           VALUES (?, ?, ?, ?)`,
+        )
+        .run(key, owner, expiresAt, now);
 
-    const row = this.db.prepare('SELECT owner, expires_at FROM leases WHERE key = ?').get(key);
+      if (insert.changes > 0) {
+        this.db.exec('COMMIT');
+        return true;
+      }
 
-    if (row && row.expires_at <= now) {
       const update = this.db
         .prepare(
           `UPDATE leases
@@ -25,15 +26,17 @@ export const leaseStoreMethods = {
         )
         .run(owner, expiresAt, now, key, now);
 
+      this.db.exec('COMMIT');
       return update.changes > 0;
+    } catch (error) {
+      this.db.exec('ROLLBACK');
+      throw error;
     }
-
-    return false;
   },
 
   renewLease(key, owner, ttlMs) {
     const now = this.now();
-    const expiresAt = new Date(Date.now() + ttlMs).toISOString();
+    const expiresAt = new Date(new Date(now).getTime() + ttlMs).toISOString();
     const result = this.db
       .prepare(
         `UPDATE leases
@@ -51,6 +54,7 @@ export const leaseStoreMethods = {
   },
 
   releaseLease(key, owner) {
-    this.db.prepare('DELETE FROM leases WHERE key = ? AND owner = ?').run(key, owner);
+    const result = this.db.prepare('DELETE FROM leases WHERE key = ? AND owner = ?').run(key, owner);
+    return result.changes > 0;
   },
 };

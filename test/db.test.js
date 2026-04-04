@@ -1,3 +1,6 @@
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { AppDb } from '../src/db/app-db.js';
@@ -210,5 +213,69 @@ test('AppDb stores notes and merges durable profile state', () => {
     assert.equal(db.getDurableProfile('chat-7').saved_patterns[0].value, 'Usually asks for implementation before planning.');
   } finally {
     db.close();
+  }
+});
+
+test('AppDb acquires a lease, rejects an active competing owner, and releases for the current owner', () => {
+  const db = new AppDb({ dbPath: ':memory:' });
+
+  try {
+    assert.equal(db.acquireLease('lease-key', 'owner-a', 1_000), true);
+    assert.equal(db.acquireLease('lease-key', 'owner-b', 1_000), false);
+
+    const held = db.getLease('lease-key');
+    assert.equal(held.owner, 'owner-a');
+
+    assert.equal(db.releaseLease('lease-key', 'owner-b'), false);
+    assert.equal(db.getLease('lease-key').owner, 'owner-a');
+    assert.equal(db.releaseLease('lease-key', 'owner-a'), true);
+    assert.equal(db.getLease('lease-key'), null);
+    assert.equal(db.releaseLease('lease-key', 'owner-a'), false);
+  } finally {
+    db.close();
+  }
+});
+
+test('AppDb reacquires an expired lease for a new owner and updates stored state', async () => {
+  const db = new AppDb({ dbPath: ':memory:' });
+
+  try {
+    assert.equal(db.acquireLease('lease-key', 'owner-a', 20), true);
+    const first = db.getLease('lease-key');
+
+    await new Promise((resolve) => setTimeout(resolve, 40));
+
+    assert.equal(db.acquireLease('lease-key', 'owner-b', 200), true);
+    const second = db.getLease('lease-key');
+
+    assert.equal(second.owner, 'owner-b');
+    assert.ok(second.updated_at >= first.updated_at);
+    assert.ok(second.expires_at > first.expires_at);
+  } finally {
+    db.close();
+  }
+});
+
+test('AppDb persists lease state across database instances', () => {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'soup-ai-lease-'));
+  const dbPath = path.join(tempRoot, 'app.sqlite');
+  const first = new AppDb({ dbPath });
+
+  try {
+    assert.equal(first.acquireLease('lease-key', 'owner-a', 1_000), true);
+  } finally {
+    first.close();
+  }
+
+  const second = new AppDb({ dbPath });
+
+  try {
+    const stored = second.getLease('lease-key');
+    assert.equal(stored.owner, 'owner-a');
+    assert.equal(second.releaseLease('lease-key', 'owner-a'), true);
+    assert.equal(second.getLease('lease-key'), null);
+  } finally {
+    second.close();
+    fs.rmSync(tempRoot, { recursive: true, force: true });
   }
 });
