@@ -40,6 +40,39 @@ export class CodexTaskRunner {
     return formatCodexResultMessage(result);
   }
 
+  buildTrimmedOutput(result, resultStatus, structuredReport) {
+    const output = {
+      ok: resultStatus === 'completed',
+      task_id: result.taskId,
+      task_title: result.taskTitle,
+      summary: result.summary,
+      working_directory: result.workingDirectory,
+      command: result.command,
+      exit_code: result.exitCode,
+      timed_out: result.timedOut,
+      result_status: resultStatus,
+      acknowledged_only: result.acknowledgedOnly ?? false,
+      structured_report: structuredReport,
+      stdout_bytes: result.stdoutBytes ?? Buffer.byteLength(`${result.stdout ?? ''}`, 'utf8'),
+      stderr_bytes: result.stderrBytes ?? Buffer.byteLength(`${result.stderr ?? ''}`, 'utf8'),
+      stdout_truncated: result.stdoutTruncated ?? false,
+      stderr_truncated: result.stderrTruncated ?? false,
+    };
+
+    const includeStdout = resultStatus !== 'completed';
+    const includeStderr = resultStatus !== 'completed';
+
+    if (includeStdout && result.stdout) {
+      output.stdout = truncateText(result.stdout, this.config.codexMaxOutputChars);
+    }
+
+    if (includeStderr && result.stderr) {
+      output.stderr = truncateText(result.stderr, this.config.codexMaxOutputChars);
+    }
+
+    return output;
+  }
+
   recordOutputProgress(fieldName, chunk, timestamp) {
     const activeRun = this.db.getActiveCodexRun();
 
@@ -147,21 +180,16 @@ export class CodexTaskRunner {
 
       this.persistTaskResult(task.id, resultStatus, summary, result.exitCode);
 
-      const output = {
-        ok: resultStatus === 'completed',
-        task_id: task.id,
-        task_title: taskTitle,
-        summary,
-        working_directory: result.workingDirectory,
-        command: result.command,
-        exit_code: result.exitCode,
-        timed_out: result.timedOut,
-        result_status: resultStatus,
-        acknowledged_only: result.acknowledgedOnly ?? false,
-        structured_report: structuredReport,
-        stdout: truncateText(result.stdout, this.config.codexMaxOutputChars),
-        stderr: truncateText(result.stderr, this.config.codexMaxOutputChars),
-      };
+      const output = this.buildTrimmedOutput(
+        {
+          ...result,
+          taskId: task.id,
+          taskTitle,
+          summary,
+        },
+        resultStatus,
+        structuredReport,
+      );
 
       this.db.recordToolRun({
         taskId: task.id,
@@ -258,21 +286,16 @@ export class CodexTaskRunner {
 
       this.persistTaskResult(task.id, resultStatus, summary, result.exitCode);
 
-      const output = {
-        ok: resultStatus === 'completed',
-        task_id: task.id,
-        task_title: taskTitle,
-        summary,
-        working_directory: result.workingDirectory,
-        command: result.command,
-        exit_code: result.exitCode,
-        timed_out: result.timedOut,
-        result_status: resultStatus,
-        acknowledged_only: result.acknowledgedOnly ?? false,
-        structured_report: structuredReport,
-        stdout: truncateText(result.stdout, this.config.codexMaxOutputChars),
-        stderr: truncateText(result.stderr, this.config.codexMaxOutputChars),
-      };
+      const output = this.buildTrimmedOutput(
+        {
+          ...result,
+          taskId: task.id,
+          taskTitle,
+          summary,
+        },
+        resultStatus,
+        structuredReport,
+      );
 
       this.db.recordToolRun({
         taskId: task.id,

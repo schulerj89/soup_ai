@@ -1,3 +1,8 @@
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { randomUUID } from 'node:crypto';
+
 function extractText(message) {
   return message?.text ?? message?.caption ?? null;
 }
@@ -184,17 +189,29 @@ export class TelegramUpdateIngester {
       throw new Error('Telegram did not return a file path for the audio attachment.');
     }
 
-    const audioBuffer = await this.telegramClient.downloadFile(file.file_path);
-    const transcription = await this.audioTranscriber.transcribe({
-      audioBuffer,
-      fileName: attachment.fileName,
-      mimeType: attachment.mimeType,
-    });
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'soup-ai-telegram-audio-'));
+    const tempAudioPath = path.join(tempDir, `${randomUUID()}-${attachment.fileName}`);
 
-    return {
-      text: transcription.text,
-      model: transcription.model,
-      telegramFilePath: file.file_path,
-    };
+    try {
+      await this.telegramClient.downloadFileToPath(file.file_path, tempAudioPath);
+      const transcription = await this.audioTranscriber.transcribe({
+        filePath: tempAudioPath,
+        fileName: attachment.fileName,
+        mimeType: attachment.mimeType,
+      });
+
+      return {
+        text: transcription.text,
+        model: transcription.model,
+        telegramFilePath: file.file_path,
+      };
+    } finally {
+      if (fs.existsSync(tempAudioPath)) {
+        fs.unlinkSync(tempAudioPath);
+      }
+      if (fs.existsSync(tempDir)) {
+        fs.rmdirSync(tempDir);
+      }
+    }
   }
 }

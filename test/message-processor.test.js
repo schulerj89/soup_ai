@@ -151,6 +151,81 @@ test('MessageProcessor lets the supervisor agent choose Codex tool usage', async
   }
 });
 
+test('MessageProcessor avoids storing raw stdout and stderr for successful structured Codex runs', async () => {
+  const db = createTestDb();
+
+  try {
+    const { job } = queueInboundJob(db, {
+      updateId: 41,
+      telegramMessageId: 141,
+      chatId: 'chat-trim-success',
+      text: 'Please update the repo and summarize the result.',
+    });
+
+    const processor = new MessageProcessor({
+      db,
+      agent: {
+        composeAcknowledgement: async () => "Got it. I'll start that now.",
+        summarizeCodexResult: async ({ codexResult }) => codexResult.summary,
+      },
+      executionPlanner: {
+        plan: async () => ({
+          action: 'run_codex',
+          reason: 'User requested repo work.',
+          responseOutline: null,
+          taskTitle: 'Trim success output',
+          executionPlan: {
+            goal: 'Update the repo and summarize the result.',
+            steps: ['Update the repo.', 'Summarize the result.'],
+            targetPaths: ['src'],
+            exactFileContents: [],
+            constraints: [],
+            verification: ['npm test'],
+          },
+          workingDirectory: 'C:/Users/joshs/Projects/soup_ai',
+        }),
+      },
+      codexRunner: {
+        run: async () => ({
+          workingDirectory: 'C:/Users/joshs/Projects/soup_ai',
+          command: 'codex exec ...',
+          exitCode: 0,
+          timedOut: false,
+          stdout: 'verbose stdout that should not be persisted',
+          stderr: 'verbose stderr that should not be persisted',
+          stdoutBytes: 40000,
+          stderrBytes: 1200,
+          stdoutTruncated: true,
+          stderrTruncated: true,
+          structuredReport: {
+            status: 'completed',
+            summary: 'Completed successfully.',
+            files_changed: ['src/example.js'],
+            verification: ['npm test'],
+            remaining_work: [],
+            user_message: 'Completed successfully.',
+          },
+          acknowledgedOnly: false,
+        }),
+      },
+      config,
+      conversationManager: createConversationManagerStub(),
+    });
+
+    await processor.processJob(job);
+
+    const toolRun = JSON.parse(db.db.prepare('SELECT output_json FROM tool_runs ORDER BY id DESC LIMIT 1').get().output_json);
+    assert.equal(toolRun.stdout, undefined);
+    assert.equal(toolRun.stderr, undefined);
+    assert.equal(toolRun.stdout_bytes, 40000);
+    assert.equal(toolRun.stderr_bytes, 1200);
+    assert.equal(toolRun.stdout_truncated, true);
+    assert.equal(toolRun.stderr_truncated, true);
+  } finally {
+    db.close();
+  }
+});
+
 test('MessageProcessor can queue Codex work for background execution', async () => {
   const db = createTestDb();
 
@@ -601,6 +676,69 @@ test('MessageProcessor reports acknowledgement-only Codex runs as incomplete whe
 
     assert.equal(latestTask.status, 'failed');
     assert.equal(outbound[1], 'Codex did not complete the requested work.');
+  } finally {
+    db.close();
+  }
+});
+
+test('MessageProcessor keeps trimmed stderr for failed Codex runs', async () => {
+  const db = createTestDb();
+
+  try {
+    const { job } = queueInboundJob(db, {
+      updateId: 32,
+      telegramMessageId: 132,
+      chatId: 'chat-trim-failure',
+      text: 'Please update the repo.',
+    });
+
+    const processor = new MessageProcessor({
+      db,
+      agent: {
+        composeAcknowledgement: async () => "Got it. I'll start that now.",
+        summarizeCodexResult: async ({ codexResult }) => codexResult.summary,
+      },
+      executionPlanner: {
+        plan: async () => ({
+          action: 'run_codex',
+          reason: 'User asked for repo work.',
+          responseOutline: null,
+          taskTitle: 'Failure output',
+          executionPlan: {
+            goal: 'Please update the repo.',
+            steps: ['Update the repo as requested.'],
+            targetPaths: [],
+            exactFileContents: [],
+            constraints: [],
+            verification: [],
+          },
+          workingDirectory: 'C:/Users/joshs/Projects/soup_ai',
+        }),
+      },
+      codexRunner: {
+        run: async () => ({
+          workingDirectory: 'C:/Users/joshs/Projects/soup_ai',
+          command: 'codex exec ...',
+          exitCode: 1,
+          timedOut: false,
+          stdout: 'failed stdout',
+          stderr: 'failed stderr',
+          stdoutBytes: 13,
+          stderrBytes: 13,
+          structuredReport: null,
+          acknowledgedOnly: false,
+        }),
+      },
+      config,
+      conversationManager: createConversationManagerStub(),
+    });
+
+    await processor.processJob(job);
+
+    const toolRun = JSON.parse(db.db.prepare('SELECT output_json FROM tool_runs ORDER BY id DESC LIMIT 1').get().output_json);
+    assert.equal(toolRun.stdout, 'failed stdout');
+    assert.equal(toolRun.stderr, 'failed stderr');
+    assert.equal(toolRun.result_status, 'failed');
   } finally {
     db.close();
   }

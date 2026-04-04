@@ -1,3 +1,5 @@
+import { openAsBlob } from 'node:fs';
+
 const DEFAULT_API_BASE_URL = 'https://api.openai.com/v1';
 
 function formatApiError(status, bodyText) {
@@ -18,13 +20,17 @@ export class AudioTranscriber {
     this.fetchImpl = fetchImpl;
   }
 
-  async transcribe({ audioBuffer, fileName, mimeType = 'application/octet-stream' }) {
+  async transcribe({ audioBuffer = null, filePath = null, fileName, mimeType = 'application/octet-stream' }) {
     if (!this.apiKey) {
       throw new Error('AudioTranscriber requires an OpenAI API key.');
     }
 
+    if (!audioBuffer && !filePath) {
+      throw new Error('AudioTranscriber requires either an audioBuffer or filePath.');
+    }
+
     const form = new FormData();
-    const file = new Blob([audioBuffer], { type: mimeType });
+    const file = filePath ? await openAsBlob(filePath, { type: mimeType }) : new Blob([audioBuffer], { type: mimeType });
     form.append('file', file, fileName);
     form.append('model', this.model);
 

@@ -1,3 +1,20 @@
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+
+const DEFAULT_CAPTURE_MAX_CHARS = 64 * 1024;
+
+function appendBoundedTail(current, addition, maxChars) {
+  const max = Number.isFinite(maxChars) && maxChars > 0 ? maxChars : DEFAULT_CAPTURE_MAX_CHARS;
+  const next = `${current}${addition}`;
+
+  if (next.length <= max) {
+    return next;
+  }
+
+  return next.slice(-max);
+}
+
 export class CodexProcessRunner {
   constructor({
     spawnImpl,
@@ -12,12 +29,19 @@ export class CodexProcessRunner {
   async execute({
     spawnSpec,
     workingDirectory,
+    outputDirectory = os.tmpdir(),
+    maxBufferedChars = DEFAULT_CAPTURE_MAX_CHARS,
     onSpawn = null,
     onExit = null,
     onStdout = null,
     onStderr = null,
   }) {
     return new Promise((resolve, reject) => {
+      fs.mkdirSync(outputDirectory, { recursive: true });
+      const stdoutFilePath = path.join(outputDirectory, 'stdout.log');
+      const stderrFilePath = path.join(outputDirectory, 'stderr.log');
+      const stdoutStream = fs.createWriteStream(stdoutFilePath, { flags: 'w' });
+      const stderrStream = fs.createWriteStream(stderrFilePath, { flags: 'w' });
       const child = this.spawnImpl(spawnSpec.command, spawnSpec.args, {
         cwd: workingDirectory,
         shell: spawnSpec.shell,
@@ -34,9 +58,27 @@ export class CodexProcessRunner {
 
       let stdout = '';
       let stderr = '';
+      let stdoutBytes = 0;
+      let stderrBytes = 0;
       let settled = false;
       let timedOut = false;
       let finalized = false;
+
+      const closeCaptureStreams = async () => {
+        await Promise.all(
+          [stdoutStream, stderrStream].map(
+            (stream) =>
+              new Promise((resolveStream) => {
+                if (stream.destroyed) {
+                  resolveStream();
+                  return;
+                }
+
+                stream.end(resolveStream);
+              }),
+          ),
+        );
+      };
 
       const finalizeExit = async () => {
         if (finalized) {
@@ -44,6 +86,7 @@ export class CodexProcessRunner {
         }
 
         finalized = true;
+        await closeCaptureStreams();
 
         if (onExit) {
           await onExit({ pid: child.pid, timedOut });
@@ -61,7 +104,9 @@ export class CodexProcessRunner {
 
       child.stdout.on('data', (chunk) => {
         const text = chunk.toString();
-        stdout += text;
+        stdoutStream.write(chunk);
+        stdoutBytes += Buffer.byteLength(text, 'utf8');
+        stdout = appendBoundedTail(stdout, text, maxBufferedChars);
         if (onStdout) {
           Promise.resolve(onStdout({ pid: child.pid, chunk: text, timestamp: new Date().toISOString() })).catch(() => {});
         }
@@ -69,7 +114,9 @@ export class CodexProcessRunner {
 
       child.stderr.on('data', (chunk) => {
         const text = chunk.toString();
-        stderr += text;
+        stderrStream.write(chunk);
+        stderrBytes += Buffer.byteLength(text, 'utf8');
+        stderr = appendBoundedTail(stderr, text, maxBufferedChars);
         if (onStderr) {
           Promise.resolve(onStderr({ pid: child.pid, chunk: text, timestamp: new Date().toISOString() })).catch(() => {});
         }
@@ -98,6 +145,12 @@ export class CodexProcessRunner {
             workingDirectory,
             stdout,
             stderr,
+            stdoutBytes,
+            stderrBytes,
+            stdoutFilePath,
+            stderrFilePath,
+            stdoutTruncated: stdout.length < stdoutBytes,
+            stderrTruncated: stderr.length < stderrBytes,
             exitCode: exitCode ?? (timedOut ? -1 : null),
             signal,
             timedOut,

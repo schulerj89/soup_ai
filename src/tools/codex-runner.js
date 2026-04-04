@@ -61,6 +61,8 @@ const CODEX_REPORT_SCHEMA = {
   },
 };
 
+const PROCESS_OUTPUT_CAPTURE_MAX_CHARS = 64 * 1024;
+
 export { parseCodexStructuredReport } from './codex-result-parser.js';
 
 export class CodexRunner {
@@ -202,6 +204,8 @@ export class CodexRunner {
       const initialResult = await this.processRunner.execute({
         spawnSpec: this.buildSpawnSpec(initialArgs),
         workingDirectory: safeDirectory,
+        outputDirectory: tempDir,
+        maxBufferedChars: PROCESS_OUTPUT_CAPTURE_MAX_CHARS,
         onSpawn: (event) =>
           onSpawn?.({
             ...event,
@@ -232,6 +236,8 @@ export class CodexRunner {
         const fallbackResult = await this.processRunner.execute({
           spawnSpec: this.buildSpawnSpec(fallbackArgs),
           workingDirectory: safeDirectory,
+          outputDirectory: tempDir,
+          maxBufferedChars: PROCESS_OUTPUT_CAPTURE_MAX_CHARS,
           onSpawn: (event) =>
             onSpawn?.({
               ...event,
@@ -281,7 +287,7 @@ export class CodexRunner {
         fs.unlinkSync(outputLastMessagePath);
       }
       if (fs.existsSync(tempDir)) {
-        fs.rmdirSync(tempDir);
+        fs.rmSync(tempDir, { recursive: true, force: true });
       }
     }
   }

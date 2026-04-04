@@ -601,9 +601,10 @@ test('SupervisorService transcribes Telegram voice messages before processing th
         assert.equal(fileId, 'voice-file-1');
         return { file_path: 'voice/file-1.ogg' };
       },
-      downloadFile: async (filePath) => {
+      downloadFileToPath: async (filePath, destinationPath) => {
         assert.equal(filePath, 'voice/file-1.ogg');
-        return Buffer.from('ogg-audio');
+        fs.writeFileSync(destinationPath, 'ogg-audio', 'utf8');
+        return destinationPath;
       },
       sendMessage: async ({ chatId, text }) => {
         sent.push({ chatId, text });
@@ -611,8 +612,8 @@ test('SupervisorService transcribes Telegram voice messages before processing th
       },
     },
     audioTranscriber: {
-      transcribe: async ({ audioBuffer, fileName, mimeType }) => {
-        assert.equal(audioBuffer.toString(), 'ogg-audio');
+      transcribe: async ({ filePath, fileName, mimeType }) => {
+        assert.equal(fs.readFileSync(filePath, 'utf8'), 'ogg-audio');
         assert.equal(fileName, 'voice-88.ogg');
         assert.equal(mimeType, 'audio/ogg');
         return {

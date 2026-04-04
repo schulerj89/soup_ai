@@ -1,3 +1,7 @@
+import fs from 'node:fs';
+import { Readable } from 'node:stream';
+import { pipeline } from 'node:stream/promises';
+
 export class TelegramApiError extends Error {
   constructor({ statusCode = null, description = null, retryAfterSeconds = null }) {
     const baseMessage = description
@@ -85,6 +89,17 @@ export class TelegramClient {
   }
 
   async downloadFile(filePath) {
+    const chunks = [];
+    const stream = await this.downloadFileStream(filePath);
+
+    for await (const chunk of stream) {
+      chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+    }
+
+    return Buffer.concat(chunks);
+  }
+
+  async downloadFileStream(filePath) {
     const response = await this.fetchImpl(`${this.apiBaseUrl}/file/bot${this.token}/${filePath}`, {
       method: 'GET',
     });
@@ -93,6 +108,15 @@ export class TelegramClient {
       throw new Error(`Telegram file download HTTP ${response.status}`);
     }
 
-    return Buffer.from(await response.arrayBuffer());
+    if (!response.body) {
+      throw new Error('Telegram file download did not return a response body.');
+    }
+
+    return Readable.fromWeb(response.body);
+  }
+
+  async downloadFileToPath(filePath, destinationPath) {
+    await pipeline(await this.downloadFileStream(filePath), fs.createWriteStream(destinationPath, { flags: 'w' }));
+    return destinationPath;
   }
 }

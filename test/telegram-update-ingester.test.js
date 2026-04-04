@@ -1,3 +1,4 @@
+import fs from 'node:fs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { TelegramUpdateIngester } from '../src/services/supervisor-service/telegram-update-ingester.js';
@@ -51,14 +52,15 @@ test('TelegramUpdateIngester combines caption text with a transcribed audio atta
           assert.equal(fileId, 'audio-1');
           return { file_path: 'audio/file-1.mp3' };
         },
-        downloadFile: async (filePath) => {
+        downloadFileToPath: async (filePath, destinationPath) => {
           assert.equal(filePath, 'audio/file-1.mp3');
-          return Buffer.from('audio-bytes');
+          fs.writeFileSync(destinationPath, 'audio-bytes', 'utf8');
+          return destinationPath;
         },
       },
       audioTranscriber: {
-        transcribe: async ({ audioBuffer, fileName, mimeType }) => {
-          assert.equal(audioBuffer.toString(), 'audio-bytes');
+        transcribe: async ({ filePath, fileName, mimeType }) => {
+          assert.equal(fs.readFileSync(filePath, 'utf8'), 'audio-bytes');
           assert.equal(fileName, 'note.mp3');
           assert.equal(mimeType, 'audio/mpeg');
           return {

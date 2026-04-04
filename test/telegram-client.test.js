@@ -1,3 +1,7 @@
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { ReadableStream } from 'node:stream/web';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { TelegramApiError, TelegramClient } from '../src/telegram/telegram-client.js';
@@ -57,9 +61,12 @@ test('TelegramClient downloads file bytes and rejects HTTP failures', async () =
       if (url.includes('/file/')) {
         return {
           ok: true,
-          async arrayBuffer() {
-            return Uint8Array.from([65, 66, 67]).buffer;
-          },
+          body: new ReadableStream({
+            start(controller) {
+              controller.enqueue(Uint8Array.from([65, 66, 67]));
+              controller.close();
+            },
+          }),
         };
       }
 
@@ -74,6 +81,31 @@ test('TelegramClient downloads file bytes and rejects HTTP failures', async () =
 
   assert.equal(bytes.toString('utf8'), 'ABC');
   await assert.rejects(client.call('getMe'), /Telegram API HTTP 503/);
+});
+
+test('TelegramClient streams file downloads to disk', async () => {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'soup-ai-telegram-client-'));
+  const targetPath = path.join(tempRoot, 'audio.ogg');
+  const client = new TelegramClient({
+    token: 'test-token',
+    fetchImpl: async () => ({
+      ok: true,
+      body: new ReadableStream({
+        start(controller) {
+          controller.enqueue(Uint8Array.from(Buffer.from('AB')));
+          controller.enqueue(Uint8Array.from(Buffer.from('CD')));
+          controller.close();
+        },
+      }),
+    }),
+  });
+
+  try {
+    await client.downloadFileToPath('audio/file-1.ogg', targetPath);
+    assert.equal(fs.readFileSync(targetPath, 'utf8'), 'ABCD');
+  } finally {
+    fs.rmSync(tempRoot, { recursive: true, force: true });
+  }
 });
 
 test('TelegramClient preserves retry_after details on HTTP 429 responses', async () => {
