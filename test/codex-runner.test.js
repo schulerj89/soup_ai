@@ -5,6 +5,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
 import { CodexRunner, parseCodexStructuredReport } from '../src/tools/codex-runner.js';
+import { isAcknowledgementLikeText } from '../src/tools/codex-result-parser.js';
 
 test('CodexRunner reads config and recent rate-limit telemetry', async () => {
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'soup-ai-codex-'));
@@ -410,4 +411,10 @@ test('parseCodexStructuredReport normalizes legacy single commit hash into commi
       user_message: 'Completed work.',
     },
   );
+});
+
+test('isAcknowledgementLikeText accepts smart-apostrophe variants from Codex output', () => {
+  assert.equal(isAcknowledgementLikeText('I’ll treat the workspace root as trusted.'), true);
+  assert.equal(isAcknowledgementLikeText('Iâ€™ll treat the workspace root as trusted.'), true);
+  assert.equal(isAcknowledgementLikeText('Implemented the requested fix.'), false);
 });

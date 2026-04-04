@@ -88,8 +88,16 @@ function extractTrailingJsonObject(value) {
   return null;
 }
 
+function normalizeAgentText(value) {
+  return `${value ?? ''}`
+    .replace(/\r\n/g, '\n')
+    .replace(/[’‘]/g, "'")
+    .replace(/â€™/g, "'")
+    .replace(/\u00a0/g, ' ');
+}
+
 export function parseCodexStructuredReport(value) {
-  const normalized = `${value ?? ''}`.trim();
+  const normalized = normalizeAgentText(value).trim();
 
   if (!normalized) {
     return null;
@@ -111,13 +119,13 @@ export function parseCodexStructuredReport(value) {
 }
 
 export function isAcknowledgementLikeText(text) {
-  const normalized = `${text ?? ''}`.trim();
+  const normalized = normalizeAgentText(text).trim();
 
   if (!normalized) {
     return true;
   }
 
-  return /^(noted\.|using workspace root|workspace root noted|i(?:'|Ã¢â‚¬â„¢|â€™)ll treat\b|i(?:'|Ã¢â‚¬â„¢|â€™)m treating\b|recorded the workspace root)/i.test(
+  return /^(noted\.|using workspace root|workspace root noted|i(?:'ll treat\b|'m treating\b)|recorded the workspace root)/i.test(
     normalized,
   );
 }
