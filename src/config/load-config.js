@@ -18,6 +18,10 @@ const RawEnvSchema = z.object({
   SUPERVISOR_DB_PATH: z.string().trim().default('./data/soup-ai.sqlite'),
   SUPERVISOR_WORKSPACE_ROOT: z.string().trim().default('C:/Users/joshs/Projects'),
   SUPERVISOR_MAX_JOBS_PER_RUN: z.coerce.number().int().min(1).max(100).default(5),
+  SUPERVISOR_ENABLE_BACKGROUND_CODEX_TASKS: z
+    .enum(['true', 'false'])
+    .default('false')
+    .transform((value) => value === 'true'),
   CODEX_BIN: z.string().trim().default('codex'),
   CODEX_MODEL: z.string().trim().optional(),
   CODEX_ENABLE_SEARCH: z
@@ -92,6 +96,10 @@ export function loadConfig(options = {}) {
     dbPath: raw.SUPERVISOR_DB_PATH === ':memory:' ? ':memory:' : resolveProjectPath(raw.SUPERVISOR_DB_PATH),
     workspaceRoot: path.resolve(raw.SUPERVISOR_WORKSPACE_ROOT),
     maxJobsPerRun: raw.SUPERVISOR_MAX_JOBS_PER_RUN,
+    allowBackgroundCodexTasks: raw.SUPERVISOR_ENABLE_BACKGROUND_CODEX_TASKS,
+    taskToolConcurrency: {
+      codex: 1,
+    },
     codexBin: raw.CODEX_BIN,
     codexModel: raw.CODEX_MODEL,
     codexEnableSearch: raw.CODEX_ENABLE_SEARCH,

@@ -3,7 +3,7 @@ import path from 'node:path';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { SupervisorService } from '../src/services/supervisor-service.js';
-import { createSilentLogger, createTestConfig, createTestDb } from '../support/unit-helpers.js';
+import { createSilentLogger, createTestConfig, createTestDb, queueInboundJob } from '../support/unit-helpers.js';
 
 const fixturePath = path.join(process.cwd(), 'test', 'fixtures', 'sample-telegram-updates.json');
 const updates = JSON.parse(fs.readFileSync(fixturePath, 'utf8'));
@@ -127,6 +127,200 @@ test('SupervisorService ingests updates, processes jobs, and flushes outbound re
     assert.equal(summary.sentMessages, 1);
     assert.equal(sent.length, 1);
     assert.equal(sent[0].text, 'Supervisor reply: Create a repo summary');
+  } finally {
+    db.close();
+  }
+});
+
+test('SupervisorService starts queued Codex tasks in the background and sends completion later', async () => {
+  const db = createTestDb();
+  const sent = [];
+  const conversationManager = createConversationManagerStub();
+
+  const telegramClient = {
+    getUpdates: async () => updates,
+    sendMessage: async ({ chatId, text }) => {
+      sent.push({ chatId, text });
+      return { message_id: 808, text };
+    },
+  };
+
+  const agent = {
+    composeAcknowledgement: async () => "I'll take care of that now.",
+    summarizeCodexResult: async ({ codexResult }) => codexResult.summary,
+  };
+
+  const executionPlanner = {
+    plan: async ({ messageText }) => ({
+      action: 'run_codex',
+      reason: 'Repo work should use Codex.',
+      responseOutline: null,
+      taskTitle: 'Inspect repo',
+      executionPlan: {
+        goal: messageText,
+        steps: ['Inspect the repo.', 'Summarize the result.'],
+        targetPaths: ['src'],
+        exactFileContents: [],
+        constraints: [],
+        verification: ['Review the relevant files.'],
+      },
+      workingDirectory: 'C:/Users/joshs/Projects/soup_ai',
+    }),
+  };
+
+  let releaseCodex = null;
+  const codexFinished = new Promise((resolve) => {
+    releaseCodex = resolve;
+  });
+
+  const codexRunner = {
+    run: async () => {
+      await codexFinished;
+      return {
+        workingDirectory: 'C:/Users/joshs/Projects/soup_ai',
+        command: 'codex exec ...',
+        exitCode: 0,
+        timedOut: false,
+        structuredReport: {
+          status: 'completed',
+          summary: 'Background repo inspection complete.',
+          files_changed: [],
+          verification: ['Reviewed the relevant files.'],
+          remaining_work: [],
+          user_message: 'Background repo inspection complete.',
+        },
+        acknowledgedOnly: false,
+        stdout: '',
+        stderr: '',
+      };
+    },
+  };
+
+  const service = new SupervisorService({
+    db,
+    telegramClient,
+    agent,
+    executionPlanner,
+    codexRunner,
+    config: createTestConfig({ allowBackgroundCodexTasks: true }),
+    conversationManager,
+    logger: createSilentLogger(),
+  });
+
+  try {
+    const summary = await service.runOnce();
+
+    assert.equal(summary.processedJobs, 1);
+    assert.equal(summary.startedTasks, 1);
+    assert.equal(sent[0].text, "I'll take care of that now.");
+    assert.match(sent[1].text, /Queued task #\d+ with checklist/);
+    assert.equal(db.listRunningTasks(10).length, 1);
+
+    releaseCodex();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const latestTask = db.listRecentTasks(1)[0];
+    assert.equal(latestTask.status, 'completed');
+    assert.equal(sent[sent.length - 1].text, 'Background repo inspection complete.');
+  } finally {
+    db.close();
+  }
+});
+
+test('SupervisorService keeps Codex single-flight even with multiple queued Codex tasks', async () => {
+  const db = createTestDb();
+  const conversationManager = createConversationManagerStub();
+
+  queueInboundJob(db, {
+    updateId: 300,
+    telegramMessageId: 301,
+    chatId: '999111',
+    text: 'First Codex task',
+  });
+  queueInboundJob(db, {
+    updateId: 302,
+    telegramMessageId: 303,
+    chatId: '999111',
+    text: 'Second Codex task',
+  });
+
+  const executionPlanner = {
+    plan: async ({ messageText }) => ({
+      action: 'run_codex',
+      reason: 'Repo work should use Codex.',
+      responseOutline: null,
+      taskTitle: messageText,
+      executionPlan: {
+        goal: messageText,
+        steps: ['Do the work.', 'Summarize it.'],
+        targetPaths: ['src'],
+        exactFileContents: [],
+        constraints: [],
+        verification: ['Inspect the result.'],
+      },
+      workingDirectory: 'C:/Users/joshs/Projects/soup_ai',
+    }),
+  };
+
+  let codexStarts = 0;
+  let releaseCodex = null;
+  const blocker = new Promise((resolve) => {
+    releaseCodex = resolve;
+  });
+
+  const service = new SupervisorService({
+    db,
+    telegramClient: {
+      getUpdates: async () => [],
+      sendMessage: async () => ({ message_id: 1 }),
+    },
+    agent: {
+      composeAcknowledgement: async () => "I'll take care of that now.",
+      summarizeCodexResult: async ({ codexResult }) => codexResult.summary,
+    },
+    executionPlanner,
+    codexRunner: {
+      run: async () => {
+        codexStarts += 1;
+        await blocker;
+        return {
+          workingDirectory: 'C:/Users/joshs/Projects/soup_ai',
+          command: 'codex exec ...',
+          exitCode: 0,
+          timedOut: false,
+          structuredReport: {
+            status: 'completed',
+            summary: 'Done.',
+            files_changed: [],
+            verification: [],
+            remaining_work: [],
+            user_message: 'Done.',
+          },
+          acknowledgedOnly: false,
+          stdout: '',
+          stderr: '',
+        };
+      },
+    },
+    config: createTestConfig({ allowBackgroundCodexTasks: true, maxJobsPerRun: 10 }),
+    conversationManager,
+    logger: createSilentLogger(),
+  });
+
+  try {
+    const firstSummary = await service.runOnce();
+
+    assert.equal(firstSummary.processedJobs, 2);
+    assert.equal(firstSummary.startedTasks, 1);
+    assert.equal(codexStarts, 1);
+    assert.equal(db.listTasksByStatus(['queued']).length, 1);
+
+    const secondSummary = await service.runOnce();
+    assert.equal(secondSummary.startedTasks, 0);
+    assert.equal(codexStarts, 1);
+
+    releaseCodex();
   } finally {
     db.close();
   }

@@ -49,6 +49,7 @@ export class MessageCommandHandler {
           `pendingJobs: ${snapshot.pendingJobs}`,
           `runningJobs: ${snapshot.runningJobs}`,
           `pendingOutbound: ${snapshot.pendingOutbound}`,
+          `queuedTasks: ${snapshot.queuedTasks ?? 0}`,
           `runningTasks: ${snapshot.runningTasks}`,
         ];
 

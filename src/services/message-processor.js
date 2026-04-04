@@ -3,7 +3,7 @@ import { ReplyQueue } from './message-processor/reply-queue.js';
 import { MessageCommandHandler } from './message-processor/command-handler.js';
 import { CodexTaskRunner } from './message-processor/codex-task-runner.js';
 import { DirectReplyHandler } from './message-processor/direct-reply-handler.js';
-import { inferTaskTitle } from './message-processor/helpers.js';
+import { inferTaskTitle, shouldUseTodoChecklist } from './message-processor/helpers.js';
 
 function toPlannerItems(rows) {
   return rows
@@ -194,6 +194,29 @@ export class MessageProcessor {
         workingDirectory: plan.workingDirectory ?? projectRoot,
       },
     });
+    const checklist = shouldUseTodoChecklist(plan.executionPlan) ? plan.executionPlan.steps : [];
+
+    if (this.config.allowBackgroundCodexTasks) {
+      const task = this.codexTaskRunner.queueExecution({
+        taskTitle: codexExecution.taskTitle,
+        prompt: codexExecution.prompt,
+        workingDirectory: codexExecution.workingDirectory,
+        sourceJobId: job.id,
+        sourceMessageId: message.id,
+        notifyChatId: message.chat_id,
+        notifyReplyToMessageId: message.telegram_message_id,
+        userText: text,
+        checklist,
+      });
+
+      this.replyQueue.queue({
+        chatId: message.chat_id,
+        replyToMessageId: null,
+        text: checklist.length > 0 ? `Queued task #${task.id} with checklist. I'll send the result when it finishes.` : `Queued task #${task.id}. I'll send the result when it finishes.`,
+      });
+
+      return;
+    }
 
     const codexResult = await this.codexTaskRunner.execute({
       taskTitle: codexExecution.taskTitle,
@@ -218,7 +241,7 @@ export class MessageProcessor {
       text: this.codexTaskRunner.formatResultMessage({
         ...codexResult,
         user_summary: userSummary,
-        }),
+      }),
     });
   }
 

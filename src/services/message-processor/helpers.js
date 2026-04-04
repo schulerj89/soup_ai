@@ -38,13 +38,35 @@ export function formatTaskList(tasks) {
   }
 
   return tasks
-    .map(
-      (task) =>
-        `#${task.id} ${task.status.toUpperCase()} ${task.title}${
-          task.result_summary ? `\n${truncateText(task.result_summary, 240)}` : ''
-        }`,
-    )
+    .map((task) => {
+      const lines = [`#${task.id} ${task.status.toUpperCase()} [${`${task.tool_type ?? 'codex'}`.toUpperCase()}] ${task.title}`];
+
+      if (task.last_progress_text) {
+        lines.push(truncateText(task.last_progress_text, 240));
+      }
+
+      const checklist = Array.isArray(task.progress?.checklist) ? task.progress.checklist : [];
+      if (checklist.length > 0) {
+        const completed = checklist.filter((item) => item.status === 'completed').length;
+        lines.push(`checklist: ${completed}/${checklist.length} complete`);
+      }
+
+      if (task.result_summary) {
+        lines.push(truncateText(task.result_summary, 240));
+      }
+
+      return lines.join('\n');
+    })
     .join('\n\n');
+}
+
+export function shouldUseTodoChecklist(executionPlan) {
+  const steps = Array.isArray(executionPlan?.steps) ? executionPlan.steps.filter(Boolean) : [];
+  const verification = Array.isArray(executionPlan?.verification)
+    ? executionPlan.verification.filter(Boolean)
+    : [];
+
+  return steps.length >= 2 || verification.length >= 2;
 }
 
 export function inferTaskTitle(text) {
@@ -59,6 +81,7 @@ export function inferTaskTitle(text) {
 
 export function buildCodexExecutionPrompt({ taskTitle, executionPlan }) {
   const lines = [];
+  const useChecklist = shouldUseTodoChecklist(executionPlan);
 
   lines.push('You are operating as the owner\'s local computer assistant inside the approved working directory.');
   lines.push('Treat routine local file and config work as allowed, including careful edits to files like `.env` within that directory.');
@@ -86,6 +109,15 @@ export function buildCodexExecutionPrompt({ taskTitle, executionPlan }) {
 
   if (executionPlan?.steps?.length) {
     lines.push('Required changes:');
+    for (const step of executionPlan.steps) {
+      lines.push(`- ${step}`);
+    }
+    lines.push('');
+  }
+
+  if (useChecklist) {
+    lines.push('Execution checklist:');
+    lines.push('Work through the checklist deliberately and make sure the final result covers each required step.');
     for (const step of executionPlan.steps) {
       lines.push(`- ${step}`);
     }

@@ -72,6 +72,7 @@ async function main() {
       config: {
         ...config,
         telegramPollTimeoutSeconds: Math.max(config.telegramPollTimeoutSeconds, 30),
+        allowBackgroundCodexTasks: true,
       },
       memorySummarizer,
       audioTranscriber,

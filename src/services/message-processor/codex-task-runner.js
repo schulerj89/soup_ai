@@ -26,6 +26,16 @@ export class CodexTaskRunner {
     };
   }
 
+  createExecutionInput({ taskTitle, prompt, workingDirectory, userText = null, checklist = [] }) {
+    return {
+      taskTitle,
+      prompt,
+      workingDirectory,
+      userText,
+      checklist,
+    };
+  }
+
   formatResultMessage(result) {
     return formatCodexResultMessage(result);
   }
@@ -46,8 +56,8 @@ export class CodexTaskRunner {
     });
   }
 
-  async execute({ taskTitle, prompt, workingDirectory, sourceJobId, sourceMessageId }) {
-    const previewCommand = [
+  buildPreviewCommand(workingDirectory) {
+    return [
       this.config.codexBin,
       'exec',
       '--dangerously-bypass-approvals-and-sandbox',
@@ -55,6 +65,40 @@ export class CodexTaskRunner {
       workingDirectory,
       '<prompt>',
     ].join(' ');
+  }
+
+  queueExecution({
+    taskTitle,
+    prompt,
+    workingDirectory,
+    sourceJobId,
+    sourceMessageId,
+    notifyChatId,
+    notifyReplyToMessageId,
+    userText = null,
+    checklist = [],
+  }) {
+    return this.db.queueTask({
+      sourceJobId,
+      sourceMessageId,
+      title: taskTitle,
+      toolType: 'codex',
+      details: prompt,
+      executionInput: this.createExecutionInput({
+        taskTitle,
+        prompt,
+        workingDirectory,
+        userText,
+        checklist,
+      }),
+      notifyChatId,
+      notifyReplyToMessageId,
+      checklist,
+    });
+  }
+
+  async execute({ taskTitle, prompt, workingDirectory, sourceJobId, sourceMessageId }) {
+    const previewCommand = this.buildPreviewCommand(workingDirectory);
 
     const task = this.db.createTask({
       sourceJobId,
@@ -85,6 +129,117 @@ export class CodexTaskRunner {
             stderrBytes: 0,
             lastOutputAt: null,
             lastOutputPreview: null,
+          });
+        },
+        onExit: () => {
+          this.db.clearActiveCodexRun();
+        },
+        onStdout: ({ chunk, timestamp }) => {
+          this.recordOutputProgress('stdoutBytes', chunk, timestamp);
+        },
+        onStderr: ({ chunk, timestamp }) => {
+          this.recordOutputProgress('stderrBytes', chunk, timestamp);
+        },
+      });
+      const structuredReport = result.structuredReport ?? null;
+      const resultStatus = classifyCodexResult(result);
+      const summary = this.summarizeResult(result, resultStatus, structuredReport);
+
+      this.persistTaskResult(task.id, resultStatus, summary, result.exitCode);
+
+      const output = {
+        ok: resultStatus === 'completed',
+        task_id: task.id,
+        task_title: taskTitle,
+        summary,
+        working_directory: result.workingDirectory,
+        command: result.command,
+        exit_code: result.exitCode,
+        timed_out: result.timedOut,
+        result_status: resultStatus,
+        acknowledged_only: result.acknowledgedOnly ?? false,
+        structured_report: structuredReport,
+        stdout: truncateText(result.stdout, this.config.codexMaxOutputChars),
+        stderr: truncateText(result.stderr, this.config.codexMaxOutputChars),
+      };
+
+      this.db.recordToolRun({
+        taskId: task.id,
+        toolName: 'run_codex_exec',
+        input: { taskTitle, prompt, workingDirectory },
+        output,
+        exitCode: result.exitCode,
+      });
+
+      return output;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : `${error}`;
+
+      this.db.failTask(task.id, { resultSummary: message, exitCode: -1 });
+      this.db.recordToolRun({
+        taskId: task.id,
+        toolName: 'run_codex_exec',
+        input: { taskTitle, prompt, workingDirectory },
+        output: { ok: false, error: message },
+        exitCode: -1,
+      });
+
+      return {
+        ok: false,
+        task_id: task.id,
+        task_title: taskTitle,
+        summary: message,
+        working_directory: workingDirectory,
+        command: previewCommand,
+        exit_code: -1,
+        timed_out: false,
+        stdout: '',
+        stderr: message,
+      };
+    }
+  }
+
+  async executeQueuedTask(task) {
+    const executionInput = task?.execution_input ?? {};
+    const taskTitle = executionInput.taskTitle ?? task.title;
+    const prompt = executionInput.prompt ?? task.details;
+    const workingDirectory = executionInput.workingDirectory;
+    const sourceJobId = task.source_job_id ?? null;
+    const sourceMessageId = task.source_message_id ?? null;
+    const previewCommand = this.buildPreviewCommand(workingDirectory);
+    const claimed = this.db.claimTask(task.id, {
+      lastProgressText: 'Starting Codex execution.',
+    });
+
+    if (!claimed) {
+      return null;
+    }
+
+    try {
+      const result = await this.codexRunner.run({
+        prompt,
+        workingDirectory,
+        onSpawn: ({ pid, startedAt, timeoutMs, outputSchemaPath, outputLastMessagePath }) => {
+          this.db.setActiveCodexRun({
+            pid,
+            taskId: task.id,
+            sourceJobId,
+            sourceMessageId,
+            taskTitle,
+            workingDirectory,
+            startedAt,
+            timeoutMs,
+            timeoutAt: new Date(Date.parse(startedAt) + timeoutMs).toISOString(),
+            outputSchemaPath,
+            outputLastMessagePath,
+            stdoutBytes: 0,
+            stderrBytes: 0,
+            lastOutputAt: null,
+            lastOutputPreview: null,
+          });
+          this.db.updateTaskProgress(task.id, {
+            phase: 'running',
+            lastProgressText: `Running Codex in ${workingDirectory}.`,
           });
         },
         onExit: () => {

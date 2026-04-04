@@ -102,6 +102,38 @@ test('AppDb can persist partial task outcomes separately from failed tasks', () 
   }
 });
 
+test('AppDb can queue tasks with execution input and checklist progress', () => {
+  const db = new AppDb({ dbPath: ':memory:' });
+
+  try {
+    const task = db.queueTask({
+      sourceJobId: null,
+      sourceMessageId: null,
+      title: 'Inspect repo',
+      toolType: 'codex',
+      details: 'Inspect the repo and summarize it.',
+      executionInput: {
+        taskTitle: 'Inspect repo',
+        prompt: 'Inspect the repo',
+        workingDirectory: 'C:/Users/joshs/Projects/soup_ai',
+      },
+      notifyChatId: 'chat-1',
+      notifyReplyToMessageId: 44,
+      checklist: ['Inspect files', 'Summarize findings'],
+    });
+
+    assert.equal(task.status, 'queued');
+    assert.equal(task.tool_type, 'codex');
+    assert.equal(task.notify_chat_id, 'chat-1');
+    assert.equal(task.execution_input.workingDirectory, 'C:/Users/joshs/Projects/soup_ai');
+    assert.equal(task.progress.phase, 'queued');
+    assert.equal(task.progress.checklist.length, 2);
+    assert.equal(db.getQueueSnapshot().queuedTasks, 1);
+  } finally {
+    db.close();
+  }
+});
+
 test('AppDb stores conversation control state and archives resets', () => {
   const db = new AppDb({ dbPath: ':memory:' });
 

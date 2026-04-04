@@ -59,11 +59,19 @@ CREATE TABLE IF NOT EXISTS tasks (
   source_message_id INTEGER,
   title TEXT NOT NULL,
   status TEXT NOT NULL,
+  tool_type TEXT NOT NULL DEFAULT 'codex',
   details TEXT,
+  execution_input_json TEXT NOT NULL DEFAULT '{}',
+  progress_json TEXT NOT NULL DEFAULT '{}',
+  last_progress_text TEXT,
+  notify_chat_id TEXT,
+  notify_reply_to_message_id INTEGER,
   result_summary TEXT,
   codex_command TEXT,
   codex_exit_code INTEGER,
   created_at TEXT NOT NULL,
+  started_at TEXT,
+  updated_at TEXT,
   completed_at TEXT,
   FOREIGN KEY(source_job_id) REFERENCES jobs(id),
   FOREIGN KEY(source_message_id) REFERENCES messages(id)
@@ -71,6 +79,9 @@ CREATE TABLE IF NOT EXISTS tasks (
 
 CREATE INDEX IF NOT EXISTS idx_tasks_created
   ON tasks(created_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_tasks_status_tool_created
+  ON tasks(status, tool_type, created_at ASC);
 
 CREATE TABLE IF NOT EXISTS tool_runs (
   id INTEGER PRIMARY KEY AUTOINCREMENT,

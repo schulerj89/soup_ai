@@ -3,6 +3,7 @@ import { MessageProcessor } from './message-processor.js';
 import { TelegramUpdateIngester } from './supervisor-service/telegram-update-ingester.js';
 import { SupervisorJobRunner } from './supervisor-service/job-runner.js';
 import { OutboundMessageDispatcher } from './supervisor-service/outbound-dispatcher.js';
+import { getToolConcurrencyLimit } from '../tools/tool-registry.js';
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -28,7 +29,9 @@ export class SupervisorService {
     this.logger = logger;
     this.timers = timers;
     this.codexRunner = codexRunner;
+    this.agent = agent;
     this.immediateSentMessages = 0;
+    this.runningTaskExecutions = new Map();
     this.messageProcessor = new MessageProcessor({
       db,
       agent,
@@ -93,11 +96,125 @@ export class SupervisorService {
     return Math.max(1000, Math.floor(leaseTtlMs / 3));
   }
 
+  getRunningTaskIds() {
+    return [...this.runningTaskExecutions.keys()];
+  }
+
+  getRunningJobIds() {
+    return [...this.runningTaskExecutions.values()]
+      .map((entry) => entry.sourceJobId)
+      .filter((value) => value != null);
+  }
+
+  countRunningTasksByTool() {
+    const counts = new Map();
+
+    for (const { toolType } of this.runningTaskExecutions.values()) {
+      counts.set(toolType, (counts.get(toolType) ?? 0) + 1);
+    }
+
+    return counts;
+  }
+
+  async startEligibleQueuedTasks() {
+    if (!this.config.allowBackgroundCodexTasks) {
+      return 0;
+    }
+
+    const queuedTasks = this.db.listQueuedTasks(20);
+    const runningCounts = this.countRunningTasksByTool();
+    let started = 0;
+
+    for (const task of queuedTasks) {
+      if (this.runningTaskExecutions.has(task.id)) {
+        continue;
+      }
+
+      const toolType = task.tool_type ?? 'codex';
+      const limit = getToolConcurrencyLimit(toolType, this.config.taskToolConcurrency);
+      const running = runningCounts.get(toolType) ?? 0;
+
+      if (running >= limit) {
+        continue;
+      }
+
+      this.launchTaskExecution(task);
+      runningCounts.set(toolType, running + 1);
+      started += 1;
+    }
+
+    return started;
+  }
+
+  launchTaskExecution(task) {
+    const toolType = task.tool_type ?? 'codex';
+    const promise = this.executeTaskInBackground(task)
+      .catch((error) => {
+        const message = error instanceof Error ? error.message : `${error}`;
+        this.logger.error(`Background task ${task.id} failed unexpectedly: ${message}`);
+      })
+      .finally(() => {
+        this.runningTaskExecutions.delete(task.id);
+      });
+
+    this.runningTaskExecutions.set(task.id, {
+      promise,
+      toolType,
+      sourceJobId: task.source_job_id ?? null,
+    });
+  }
+
+  async executeTaskInBackground(task) {
+    if ((task.tool_type ?? 'codex') !== 'codex') {
+      return;
+    }
+
+    const codexResult = await this.messageProcessor.codexTaskRunner.executeQueuedTask(task);
+
+    if (!codexResult) {
+      return;
+    }
+
+    const sourceMessage = task.source_message_id ? this.db.getMessageById(task.source_message_id) : null;
+    const userText = task.execution_input?.userText ?? sourceMessage?.message_text ?? task.title;
+    const userSummary =
+      typeof this.agent?.summarizeCodexResult === 'function'
+        ? await this.agent.summarizeCodexResult({
+            chatId: task.notify_chat_id,
+            workspaceRoot: this.config.workspaceRoot,
+            userMessage: userText,
+            codexResult,
+          })
+        : null;
+
+    if (task.notify_chat_id) {
+      this.db.queueOutboundMessage({
+        chatId: task.notify_chat_id,
+        text: this.messageProcessor.codexTaskRunner.formatResultMessage({
+          ...codexResult,
+          user_summary: userSummary,
+        }),
+        replyToMessageId: task.notify_reply_to_message_id ?? null,
+      });
+      await this.flushOutbound(1);
+    }
+  }
+
   async recoverAbandonedCodexProcess() {
     const activeRun = this.db.getActiveCodexRun();
 
     if (!activeRun?.pid) {
       return { found: false, killed: false };
+    }
+
+    if (activeRun.taskId && this.runningTaskExecutions.has(activeRun.taskId)) {
+      return {
+        found: true,
+        killed: false,
+        pid: activeRun.pid,
+        taskId: activeRun.taskId ?? null,
+        active: true,
+      };
     }
 
     let killed = false;
@@ -137,7 +254,10 @@ export class SupervisorService {
     const recoveredProcess = await this.recoverAbandonedCodexProcess();
     const abandonedReason =
       'Recovered abandoned supervisor work after a previous run lost its lease before completing.';
-    const recovered = this.db.failRunningWork(abandonedReason);
+    const recovered = this.db.failRunningWork(abandonedReason, {
+      excludeTaskIds: this.getRunningTaskIds(),
+      excludeJobIds: this.getRunningJobIds(),
+    });
 
     if (recovered.failedJobs > 0 || recovered.failedTasks > 0) {
       this.logger.error(
@@ -164,6 +284,7 @@ export class SupervisorService {
 
       const ingested = await this.ingestUpdates(updates);
       const processedJobs = await this.processPendingJobs(this.config.maxJobsPerRun);
+      const startedTasks = await this.startEligibleQueuedTasks();
       const sentMessages = this.immediateSentMessages + (await this.flushOutbound(20));
 
       return {
@@ -173,6 +294,7 @@ export class SupervisorService {
         updatesReceived: updates.length,
         insertedMessages: ingested.inserted,
         processedJobs,
+        startedTasks,
         sentMessages,
       };
     } finally {

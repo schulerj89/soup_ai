@@ -11,6 +11,10 @@ const TEST_CONFIG = {
   telegramPollTimeoutSeconds: 0,
   telegramAudioMaxFileBytes: 24 * 1024 * 1024,
   maxJobsPerRun: 5,
+  allowBackgroundCodexTasks: false,
+  taskToolConcurrency: {
+    codex: 1,
+  },
 };
 
 export function createTestDb() {

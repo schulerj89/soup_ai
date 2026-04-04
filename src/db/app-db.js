@@ -18,6 +18,7 @@ export class AppDb {
 
     this.db = new DatabaseSync(dbPath);
     this.db.exec(SCHEMA_SQL);
+    this.ensureSchemaColumns();
   }
 
   close() {
@@ -26,6 +27,36 @@ export class AppDb {
 
   now() {
     return new Date().toISOString();
+  }
+
+  ensureSchemaColumns() {
+    const taskColumns = new Set(
+      this.db
+        .prepare('PRAGMA table_info(tasks)')
+        .all()
+        .map((column) => column.name),
+    );
+
+    const taskAlterStatements = [
+      ["tool_type", "ALTER TABLE tasks ADD COLUMN tool_type TEXT NOT NULL DEFAULT 'codex'"],
+      ["execution_input_json", "ALTER TABLE tasks ADD COLUMN execution_input_json TEXT NOT NULL DEFAULT '{}'"],
+      ["progress_json", "ALTER TABLE tasks ADD COLUMN progress_json TEXT NOT NULL DEFAULT '{}'"],
+      ["last_progress_text", 'ALTER TABLE tasks ADD COLUMN last_progress_text TEXT'],
+      ["notify_chat_id", 'ALTER TABLE tasks ADD COLUMN notify_chat_id TEXT'],
+      ["notify_reply_to_message_id", 'ALTER TABLE tasks ADD COLUMN notify_reply_to_message_id INTEGER'],
+      ["started_at", 'ALTER TABLE tasks ADD COLUMN started_at TEXT'],
+      ["updated_at", 'ALTER TABLE tasks ADD COLUMN updated_at TEXT'],
+    ];
+
+    for (const [column, statement] of taskAlterStatements) {
+      if (!taskColumns.has(column)) {
+        this.db.exec(statement);
+      }
+    }
+
+    this.db.exec(
+      'CREATE INDEX IF NOT EXISTS idx_tasks_status_tool_created ON tasks(status, tool_type, created_at ASC)',
+    );
   }
 }
 

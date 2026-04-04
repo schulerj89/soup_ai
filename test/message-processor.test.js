@@ -151,6 +151,66 @@ test('MessageProcessor lets the supervisor agent choose Codex tool usage', async
   }
 });
 
+test('MessageProcessor can queue Codex work for background execution', async () => {
+  const db = createTestDb();
+
+  try {
+    const { job } = queueInboundJob(db, {
+      updateId: 101,
+      telegramMessageId: 111,
+      chatId: 'chat-bg',
+      text: 'Please inspect the repo, run tests, and summarize the result.',
+    });
+
+    const processor = new MessageProcessor({
+      db,
+      agent: {
+        composeAcknowledgement: async () => "Got it. I'll start that now.",
+      },
+      executionPlanner: {
+        plan: async () => ({
+          action: 'run_codex',
+          reason: 'User requested repo work.',
+          responseOutline: null,
+          taskTitle: 'Inspect repo',
+          executionPlan: {
+            goal: 'Inspect the repo, run tests, and summarize the result.',
+            steps: ['Inspect the repo.', 'Run tests.', 'Summarize the result.'],
+            targetPaths: ['src'],
+            exactFileContents: [],
+            constraints: [],
+            verification: ['npm test'],
+          },
+          workingDirectory: 'C:/Users/joshs/Projects/soup_ai',
+        }),
+      },
+      codexRunner: {
+        run: async () => {
+          throw new Error('background queueing should not execute Codex inline');
+        },
+        getStatus: async () => ({ ok: true }),
+      },
+      config: createTestConfig({ allowBackgroundCodexTasks: true }),
+      conversationManager: createConversationManagerStub(),
+    });
+
+    await processor.processJob(job);
+
+    const tasks = db.listRecentTasks(1);
+    const outbound = listOutboundMessages(db);
+
+    assert.equal(tasks[0].status, 'queued');
+    assert.equal(tasks[0].tool_type, 'codex');
+    assert.equal(tasks[0].progress.checklist.length, 3);
+    assert.deepEqual(outbound, [
+      "Got it. I'll start that now.",
+      `Queued task #${tasks[0].id} with checklist. I'll send the result when it finishes.`,
+    ]);
+  } finally {
+    db.close();
+  }
+});
+
 test('MessageProcessor handles built-in slash commands without invoking planning', async () => {
   const db = createTestDb();
 
@@ -831,6 +891,7 @@ test('MessageProcessor renders exact file contents explicitly for Codex', async 
     assert.match(renderedPrompt.prompt, /Path: telegram_codex_e2e\/readme\.md/);
     assert.match(renderedPrompt.prompt, /Content:\ntelegram smoke test/);
     assert.match(renderedPrompt.prompt, /Constraints:\n- Do not add any extra text\./);
+    assert.match(renderedPrompt.prompt, /Execution checklist:/);
     assert.match(renderedPrompt.prompt, /Final response requirements:/);
     assert.match(renderedPrompt.prompt, /CODEX_RESULT_JSON:/);
   } finally {
