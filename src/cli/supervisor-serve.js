@@ -7,6 +7,7 @@ import { AudioTranscriber } from '../openai/audio-transcriber.js';
 import { SupervisorService } from '../services/supervisor-service.js';
 import { TelegramClient } from '../telegram/telegram-client.js';
 import { CodexRunner } from '../tools/codex-runner.js';
+import { acquireWindowsKeepAwake } from '../utils/windows-keep-awake.js';
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -23,47 +24,78 @@ function computeFailureDelayMs(error, consecutiveFailures) {
   return Math.min(30000, 1000 * 2 ** Math.min(consecutiveFailures - 1, 5));
 }
 
-async function main() {
-  const config = loadConfig();
-  const db = new AppDb({ dbPath: config.dbPath });
+function formatError(error) {
+  return error instanceof Error ? error.stack ?? error.message : `${error}`;
+}
+
+export async function runSupervisorServe({
+  loadConfigFn = loadConfig,
+  AppDbClass = AppDb,
+  ExecutionPlannerClass = ExecutionPlanner,
+  SupervisorAgentClass = SupervisorAgent,
+  MemorySummarizerClass = MemorySummarizer,
+  AudioTranscriberClass = AudioTranscriber,
+  SupervisorServiceClass = SupervisorService,
+  TelegramClientClass = TelegramClient,
+  CodexRunnerClass = CodexRunner,
+  createKeepAwake = acquireWindowsKeepAwake,
+  processObject = process,
+  consoleObject = console,
+  sleepFn = sleep,
+} = {}) {
+  const config = loadConfigFn();
+  const db = new AppDbClass({ dbPath: config.dbPath });
   let stopping = false;
+  const signalHandlers = new Map();
 
   const requestStop = (signal) => {
     if (!stopping) {
       stopping = true;
-      console.log(`[Soup AI] Received ${signal}; shutting down after the current cycle.`);
+      consoleObject.log(`[Soup AI] Received ${signal}; shutting down after the current cycle.`);
     }
   };
 
-  process.on('SIGINT', () => requestStop('SIGINT'));
-  process.on('SIGTERM', () => requestStop('SIGTERM'));
+  for (const signal of ['SIGINT', 'SIGTERM']) {
+    const handler = () => requestStop(signal);
+    signalHandlers.set(signal, handler);
+    processObject.on(signal, handler);
+  }
+
+  let keepAwakeHandle = null;
+  let runError = null;
 
   try {
-    const telegramClient = new TelegramClient({
+    keepAwakeHandle = await createKeepAwake();
+
+    if (keepAwakeHandle.enabled) {
+      consoleObject.log('[Soup AI] Windows sleep prevention enabled for supervisor:serve.');
+    }
+
+    const telegramClient = new TelegramClientClass({
       token: config.telegramBotToken,
       apiBaseUrl: config.telegramApiBaseUrl,
     });
-    const codexRunner = new CodexRunner({
+    const codexRunner = new CodexRunnerClass({
       codexBin: config.codexBin,
       workspaceRoot: config.workspaceRoot,
       codexModel: config.codexModel,
       codexEnableSearch: config.codexEnableSearch,
       timeoutMs: config.codexTimeoutMs,
     });
-    const agent = new SupervisorAgent({
+    const agent = new SupervisorAgentClass({
       model: config.openAiModel,
     });
-    const executionPlanner = new ExecutionPlanner({
+    const executionPlanner = new ExecutionPlannerClass({
       model: config.openAiModel,
     });
-    const memorySummarizer = new MemorySummarizer({
+    const memorySummarizer = new MemorySummarizerClass({
       model: config.openAiMemoryModel,
     });
-    const audioTranscriber = new AudioTranscriber({
+    const audioTranscriber = new AudioTranscriberClass({
       apiKey: config.openAiApiKey,
       model: config.openAiTranscriptionModel,
     });
-    const service = new SupervisorService({
+    const service = new SupervisorServiceClass({
       db,
       telegramClient,
       agent,
@@ -78,7 +110,7 @@ async function main() {
       audioTranscriber,
     });
 
-    console.log('[Soup AI] supervisor:serve started.');
+    consoleObject.log('[Soup AI] supervisor:serve started.');
 
     let consecutiveFailures = 0;
 
@@ -87,28 +119,50 @@ async function main() {
         const summary = await service.runOnce();
 
         if (summary.skipped) {
-          await sleep(5000);
+          await sleepFn(5000);
         } else {
           consecutiveFailures = 0;
         }
       } catch (error) {
         consecutiveFailures += 1;
         const delayMs = computeFailureDelayMs(error, consecutiveFailures);
-        const message = error instanceof Error ? error.stack ?? error.message : `${error}`;
-        console.error(`[Soup AI] supervisor:serve cycle failed (${consecutiveFailures}): ${message}`);
-        console.error(`[Soup AI] supervisor:serve backing off for ${delayMs}ms before retry.`);
+        const message = formatError(error);
+        consoleObject.error(`[Soup AI] supervisor:serve cycle failed (${consecutiveFailures}): ${message}`);
+        consoleObject.error(`[Soup AI] supervisor:serve backing off for ${delayMs}ms before retry.`);
 
         if (!stopping) {
-          await sleep(delayMs);
+          await sleepFn(delayMs);
         }
       }
     }
+  } catch (error) {
+    runError = error;
+    throw error;
   } finally {
+    for (const [signal, handler] of signalHandlers) {
+      processObject.removeListener(signal, handler);
+    }
+
+    let releaseError = null;
+
+    try {
+      keepAwakeHandle?.release?.();
+    } catch (error) {
+      releaseError = error;
+      consoleObject.error(`[Soup AI] ${formatError(error)}`);
+    }
+
     db.close();
+
+    if (releaseError && !runError) {
+      throw releaseError;
+    }
   }
 }
 
-main().catch((error) => {
-  console.error(error instanceof Error ? error.stack ?? error.message : error);
-  process.exitCode = 1;
-});
+if (import.meta.main) {
+  runSupervisorServe().catch((error) => {
+    console.error(formatError(error));
+    process.exitCode = 1;
+  });
+}
