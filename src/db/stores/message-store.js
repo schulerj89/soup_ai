@@ -83,6 +83,7 @@ export const messageStoreMethods = {
         `UPDATE messages
          SET status = 'sent',
              telegram_message_id = ?,
+             last_error = NULL,
              raw_json = ?,
              processed_at = ?
          WHERE id = ?`,

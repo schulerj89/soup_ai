@@ -56,6 +56,13 @@ function combineTextAndTranscript(text, transcript) {
   return `${normalizedText}\n\nAudio transcript:\n${normalizedTranscript}`;
 }
 
+function sanitizeTempFileName(fileName, fallbackName) {
+  const normalized = `${fileName ?? ''}`.trim();
+  const candidate = normalized ? normalized.replace(/[<>:"/\\|?*\x00-\x1f]+/g, '-') : fallbackName;
+  const sanitized = candidate.replace(/^\.+$/, '').trim();
+  return sanitized || fallbackName;
+}
+
 export class TelegramUpdateIngester {
   constructor({ db, telegramClient, audioTranscriber, config, logger }) {
     this.db = db;
@@ -190,7 +197,11 @@ export class TelegramUpdateIngester {
     }
 
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'soup-ai-telegram-audio-'));
-    const tempAudioPath = path.join(tempDir, `${randomUUID()}-${attachment.fileName}`);
+    const tempFileName = sanitizeTempFileName(
+      attachment.fileName,
+      `audio-${attachment.kind}.${attachment.mimeType?.includes('ogg') ? 'ogg' : 'bin'}`,
+    );
+    const tempAudioPath = path.join(tempDir, `${randomUUID()}-${tempFileName}`);
 
     try {
       await this.telegramClient.downloadFileToPath(file.file_path, tempAudioPath);
@@ -206,11 +217,8 @@ export class TelegramUpdateIngester {
         telegramFilePath: file.file_path,
       };
     } finally {
-      if (fs.existsSync(tempAudioPath)) {
-        fs.unlinkSync(tempAudioPath);
-      }
       if (fs.existsSync(tempDir)) {
-        fs.rmdirSync(tempDir);
+        fs.rmSync(tempDir, { recursive: true, force: true });
       }
     }
   }

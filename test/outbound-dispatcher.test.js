@@ -121,3 +121,42 @@ test('OutboundMessageDispatcher stops the current flush after a Telegram 429 rat
     db.close();
   }
 });
+
+test('OutboundMessageDispatcher clears the last error after a later successful retry', async () => {
+  const db = createTestDb();
+  let attempts = 0;
+
+  try {
+    const outbound = db.queueOutboundMessage({
+      chatId: 'chat-1',
+      text: 'Retry then succeed',
+    });
+
+    const dispatcher = new OutboundMessageDispatcher({
+      db,
+      telegramClient: {
+        sendMessage: async () => {
+          attempts += 1;
+          if (attempts === 1) {
+            throw new Error('transient failure');
+          }
+
+          return { message_id: 702, ok: true };
+        },
+      },
+      logger: createSilentLogger(),
+    });
+
+    assert.equal(await dispatcher.flush(10), 0);
+    assert.equal(db.getMessageById(outbound.id).last_error, 'transient failure');
+
+    assert.equal(await dispatcher.flush(10), 1);
+
+    const stored = db.getMessageById(outbound.id);
+    assert.equal(stored.status, 'sent');
+    assert.equal(stored.telegram_message_id, 702);
+    assert.equal(stored.last_error, null);
+  } finally {
+    db.close();
+  }
+});

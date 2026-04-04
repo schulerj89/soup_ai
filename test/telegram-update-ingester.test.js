@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import path from 'node:path';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { TelegramUpdateIngester } from '../src/services/supervisor-service/telegram-update-ingester.js';
@@ -195,6 +196,60 @@ test('TelegramUpdateIngester preserves text when audio transcription fails', asy
     assert.equal(metadata.audio.transcription_error, 'network unavailable');
     assert.match(errors[0], /Failed to transcribe Telegram audio message 34/);
     assert.equal(db.listPendingJobs(10).length, 1);
+  } finally {
+    db.close();
+  }
+});
+
+test('TelegramUpdateIngester sanitizes attachment filenames before writing temp audio files', async () => {
+  const db = createTestDb();
+  const downloadPaths = [];
+
+  try {
+    const ingester = new TelegramUpdateIngester({
+      db,
+      telegramClient: {
+        getFile: async () => ({ file_path: 'audio/file-3.mp3' }),
+        downloadFileToPath: async (filePath, destinationPath) => {
+          downloadPaths.push(destinationPath);
+          fs.writeFileSync(destinationPath, 'audio-bytes', 'utf8');
+          return destinationPath;
+        },
+      },
+      audioTranscriber: {
+        transcribe: async ({ filePath, fileName }) => {
+          assert.equal(fs.readFileSync(filePath, 'utf8'), 'audio-bytes');
+          assert.equal(fileName, '..\\voice/unsafe:name?.mp3');
+          return {
+            text: 'Safe temp path',
+            model: 'gpt-4o-mini-transcribe',
+          };
+        },
+      },
+      config: createTestConfig(),
+      logger: createSilentLogger(),
+    });
+
+    await ingester.ingest([
+      {
+        update_id: 25,
+        message: {
+          message_id: 35,
+          chat: { id: 999111, type: 'private' },
+          audio: {
+            file_id: 'audio-3',
+            file_name: '..\\voice/unsafe:name?.mp3',
+            file_size: 1024,
+            mime_type: 'audio/mpeg',
+          },
+        },
+      },
+    ]);
+
+    assert.equal(downloadPaths.length, 1);
+    assert.ok(path.basename(downloadPaths[0]).includes('..-voice-unsafe-name-.mp3'));
+    assert.equal(fs.existsSync(downloadPaths[0]), false);
+    assert.equal(fs.existsSync(path.dirname(downloadPaths[0])), false);
   } finally {
     db.close();
   }
