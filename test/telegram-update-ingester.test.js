@@ -247,7 +247,61 @@ test('TelegramUpdateIngester sanitizes attachment filenames before writing temp 
     ]);
 
     assert.equal(downloadPaths.length, 1);
-    assert.ok(path.basename(downloadPaths[0]).includes('..-voice-unsafe-name-.mp3'));
+    assert.ok(path.basename(downloadPaths[0]).includes('voice-unsafe-name-.mp3'));
+    assert.equal(fs.existsSync(downloadPaths[0]), false);
+    assert.equal(fs.existsSync(path.dirname(downloadPaths[0])), false);
+  } finally {
+    db.close();
+  }
+});
+
+test('TelegramUpdateIngester avoids Windows reserved filenames and trailing dot-space suffixes', async () => {
+  const db = createTestDb();
+  const downloadPaths = [];
+
+  try {
+    const ingester = new TelegramUpdateIngester({
+      db,
+      telegramClient: {
+        getFile: async () => ({ file_path: 'audio/file-4.mp3' }),
+        downloadFileToPath: async (_filePath, destinationPath) => {
+          downloadPaths.push(destinationPath);
+          fs.writeFileSync(destinationPath, 'audio-bytes', 'utf8');
+          return destinationPath;
+        },
+      },
+      audioTranscriber: {
+        transcribe: async ({ filePath, fileName }) => {
+          assert.equal(fs.readFileSync(filePath, 'utf8'), 'audio-bytes');
+          assert.equal(fileName, 'CON .mp3. ');
+          return {
+            text: 'Reserved device name handled safely',
+            model: 'gpt-4o-mini-transcribe',
+          };
+        },
+      },
+      config: createTestConfig(),
+      logger: createSilentLogger(),
+    });
+
+    await ingester.ingest([
+      {
+        update_id: 26,
+        message: {
+          message_id: 36,
+          chat: { id: 999111, type: 'private' },
+          audio: {
+            file_id: 'audio-4',
+            file_name: 'CON .mp3. ',
+            file_size: 1024,
+            mime_type: 'audio/mpeg',
+          },
+        },
+      },
+    ]);
+
+    assert.equal(downloadPaths.length, 1);
+    assert.match(path.basename(downloadPaths[0]), /^[0-9a-f-]+-CON-file\.mp3$/i);
     assert.equal(fs.existsSync(downloadPaths[0]), false);
     assert.equal(fs.existsSync(path.dirname(downloadPaths[0])), false);
   } finally {

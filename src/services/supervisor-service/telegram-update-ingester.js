@@ -56,11 +56,53 @@ function combineTextAndTranscript(text, transcript) {
   return `${normalizedText}\n\nAudio transcript:\n${normalizedTranscript}`;
 }
 
+const reservedWindowsFileNames = new Set([
+  'con',
+  'prn',
+  'aux',
+  'nul',
+  'com1',
+  'com2',
+  'com3',
+  'com4',
+  'com5',
+  'com6',
+  'com7',
+  'com8',
+  'com9',
+  'lpt1',
+  'lpt2',
+  'lpt3',
+  'lpt4',
+  'lpt5',
+  'lpt6',
+  'lpt7',
+  'lpt8',
+  'lpt9',
+]);
+
 function sanitizeTempFileName(fileName, fallbackName) {
   const normalized = `${fileName ?? ''}`.trim();
   const candidate = normalized ? normalized.replace(/[<>:"/\\|?*\x00-\x1f]+/g, '-') : fallbackName;
-  const sanitized = candidate.replace(/^\.+$/, '').trim();
-  return sanitized || fallbackName;
+  const trimmed = candidate.replace(/[. ]+$/g, '').replace(/^\.+/, '').trim();
+
+  if (!trimmed) {
+    return fallbackName;
+  }
+
+  const parsed = path.parse(trimmed);
+  const normalizedExtension = parsed.ext.replace(/[. ]+$/g, '').trim();
+  let baseName = (parsed.name || parsed.base).replace(/[. ]+$/g, '').trim();
+
+  if (!baseName) {
+    baseName = fallbackName.replace(/\.[^.]+$/, '').trim() || 'audio';
+  }
+
+  if (reservedWindowsFileNames.has(baseName.toLowerCase())) {
+    baseName = `${baseName}-file`;
+  }
+
+  return normalizedExtension ? `${baseName}${normalizedExtension}` : baseName;
 }
 
 export class TelegramUpdateIngester {
