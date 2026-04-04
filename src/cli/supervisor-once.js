@@ -43,7 +43,10 @@ async function main() {
       agent,
       executionPlanner,
       codexRunner,
-      config,
+      config: {
+        ...config,
+        allowBackgroundCodexTasks: true,
+      },
       memorySummarizer,
       audioTranscriber,
     });
