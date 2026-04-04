@@ -80,9 +80,6 @@ CREATE TABLE IF NOT EXISTS tasks (
 CREATE INDEX IF NOT EXISTS idx_tasks_created
   ON tasks(created_at DESC);
 
-CREATE INDEX IF NOT EXISTS idx_tasks_status_tool_created
-  ON tasks(status, tool_type, created_at ASC);
-
 CREATE TABLE IF NOT EXISTS tool_runs (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   task_id INTEGER,
