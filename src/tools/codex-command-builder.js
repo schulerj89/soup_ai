@@ -2,8 +2,20 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 function pathEnvValue() {
+  if (typeof process.env.Path === 'string') {
+    return process.env.Path;
+  }
+
+  if (typeof process.env.PATH === 'string') {
+    return process.env.PATH;
+  }
+
   const key = Object.keys(process.env).find((name) => name.toLowerCase() === 'path');
   return key ? process.env[key] : '';
+}
+
+function hasWindowsPathKey() {
+  return Object.prototype.hasOwnProperty.call(process.env, 'Path');
 }
 
 function quoteForCmd(value) {
@@ -81,19 +93,23 @@ export class CodexCommandBuilder {
       return this.codexBin;
     }
 
-    if (process.platform !== 'win32') {
-      return this.codexBin;
-    }
+    const useWindowsPathResolution = process.platform === 'win32' || hasWindowsPathKey();
 
     const candidateNames = path.extname(this.codexBin)
       ? [this.codexBin]
-      : [`${this.codexBin}.cmd`, `${this.codexBin}.exe`, `${this.codexBin}.bat`, this.codexBin];
+      : useWindowsPathResolution
+        ? [`${this.codexBin}.cmd`, `${this.codexBin}.exe`, `${this.codexBin}.bat`, this.codexBin]
+        : [this.codexBin];
 
     const candidateDirectories = [
       ...`${pathEnvValue() ?? ''}`.split(path.delimiter).filter(Boolean),
-      path.dirname(process.execPath),
-      process.env.ProgramFiles ? path.join(process.env.ProgramFiles, 'nodejs') : null,
-      process.env.APPDATA ? path.join(process.env.APPDATA, 'npm') : null,
+      ...(useWindowsPathResolution
+        ? [
+            path.dirname(process.execPath),
+            process.env.ProgramFiles ? path.join(process.env.ProgramFiles, 'nodejs') : null,
+            process.env.APPDATA ? path.join(process.env.APPDATA, 'npm') : null,
+          ]
+        : []),
     ].filter(Boolean);
 
     for (const directory of candidateDirectories) {
