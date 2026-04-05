@@ -109,6 +109,40 @@ test('CodexRunner resolves codex.cmd on Windows-style PATHs', () => {
   }
 });
 
+test('CodexRunner resolves plain executables from PATH on non-Windows hosts', () => {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'soup-ai-codex-path-'));
+  const binDir = path.join(tempRoot, 'bin');
+  const executablePath = path.join(binDir, 'codex');
+  fs.mkdirSync(binDir, { recursive: true });
+  fs.writeFileSync(executablePath, '#!/bin/sh\n', 'utf8');
+
+  const originalPATH = process.env.PATH;
+  const originalPath = process.env.Path;
+  process.env.PATH = binDir;
+  delete process.env.Path;
+
+  try {
+    const runner = new CodexRunner({
+      codexBin: 'codex',
+      workspaceRoot: 'C:/Users/joshs/Projects',
+      codexModel: null,
+      codexEnableSearch: false,
+      timeoutMs: 1000,
+      codexHome: tempRoot,
+    });
+
+    const resolved = runner.resolveSpawnCommand();
+    assert.equal(resolved, executablePath);
+  } finally {
+    process.env.PATH = originalPATH;
+    if (originalPath === undefined) {
+      delete process.env.Path;
+    } else {
+      process.env.Path = originalPath;
+    }
+  }
+});
+
 test('CodexRunner wraps codex.cmd with cmd.exe on Windows', () => {
   const runner = new CodexRunner({
     codexBin: 'C:\\Users\\joshs\\AppData\\Roaming\\npm\\codex.cmd',
