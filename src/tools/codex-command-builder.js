@@ -19,11 +19,21 @@ function hasWindowsPathKey() {
 }
 
 function quoteForCmd(value) {
-  if (/^[A-Za-z0-9_./:=+-]+$/.test(value)) {
-    return value;
+  const normalized = Array.from(`${value}`, (character) => {
+    const codePoint = character.codePointAt(0) ?? 0;
+
+    if (codePoint <= 31) {
+      return ' ';
+    }
+
+    return character === '%' ? '%%' : character;
+  }).join('');
+
+  if (/^[A-Za-z0-9_./:=+-]+$/.test(normalized)) {
+    return normalized;
   }
 
-  return `"${`${value}`.replace(/"/g, '""')}"`;
+  return `"${normalized.replace(/"/g, '""')}"`;
 }
 
 function resolveBundledCodexScript(command) {

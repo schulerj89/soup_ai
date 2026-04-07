@@ -173,6 +173,32 @@ test('CodexRunner wraps codex.cmd with cmd.exe on Windows', () => {
   }
 });
 
+test('CodexRunner sanitizes Windows shell arguments before invoking codex.cmd', () => {
+  const runner = new CodexRunner({
+    codexBin: 'C:\\Users\\joshs\\AppData\\Roaming\\npm\\codex.cmd',
+    workspaceRoot: 'C:/Users/joshs/Projects',
+    codexModel: null,
+    codexEnableSearch: false,
+    timeoutMs: 1000,
+    codexHome: os.tmpdir(),
+  });
+
+  const originalPlatform = process.platform;
+  Object.defineProperty(process, 'platform', { value: 'win32' });
+
+  try {
+    const spec = runner.buildSpawnSpec(['exec', 'review\n%APPDATA%']);
+    assert.equal(
+      spec.command,
+      '"C:\\Users\\joshs\\AppData\\Roaming\\npm\\codex.cmd" exec "review %%APPDATA%%"',
+    );
+    assert.deepEqual(spec.args, []);
+    assert.equal(spec.shell, true);
+  } finally {
+    Object.defineProperty(process, 'platform', { value: originalPlatform });
+  }
+});
+
 test('CodexRunner bypasses Windows codex launcher scripts when bundled node and codex.js are present', () => {
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'soup-ai-codex-launcher-'));
   const binDir = path.join(tempRoot, 'bin');
