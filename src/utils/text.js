@@ -1,3 +1,5 @@
+const DEFAULT_TELEGRAM_CHUNK_SIZE = 3900;
+
 export function truncateText(value, maxChars) {
   const text = `${value ?? ''}`;
 
@@ -8,29 +10,33 @@ export function truncateText(value, maxChars) {
   return `${text.slice(0, maxChars)}\n...[truncated]`;
 }
 
-export function splitTelegramText(value, maxChars = 3900) {
+export function splitTelegramText(value, maxChars = DEFAULT_TELEGRAM_CHUNK_SIZE) {
   const text = `${value ?? ''}`.trim();
+  const normalizedMaxChars = Number(maxChars);
+  const limit = Number.isFinite(normalizedMaxChars)
+    ? Math.max(1, Math.floor(normalizedMaxChars))
+    : DEFAULT_TELEGRAM_CHUNK_SIZE;
 
   if (!text) {
     return [''];
   }
 
-  if (text.length <= maxChars) {
+  if (text.length <= limit) {
     return [text];
   }
 
   const parts = [];
   let remaining = text;
 
-  while (remaining.length > maxChars) {
-    let splitAt = remaining.lastIndexOf('\n', maxChars);
+  while (remaining.length > limit) {
+    let splitAt = remaining.lastIndexOf('\n', limit);
 
-    if (splitAt < maxChars * 0.5) {
-      splitAt = remaining.lastIndexOf(' ', maxChars);
+    if (splitAt < limit * 0.5) {
+      splitAt = remaining.lastIndexOf(' ', limit);
     }
 
-    if (splitAt < maxChars * 0.5) {
-      splitAt = maxChars;
+    if (splitAt < limit * 0.5) {
+      splitAt = limit;
     }
 
     parts.push(remaining.slice(0, splitAt).trim());
