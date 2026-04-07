@@ -1,5 +1,6 @@
 import { runPromptSetup } from './setup-prompt.js';
 import { runSetupTui } from './setup-tui.js';
+import { formatCliError } from '../utils/cli-error.js';
 
 async function main() {
   const shouldUseTui = Boolean(process.stdin.isTTY && process.stdout.isTTY && !process.env.CI);
@@ -17,6 +18,6 @@ async function main() {
 }
 
 main().catch((error) => {
-  console.error(error instanceof Error ? error.message : error);
+  console.error(formatCliError(error));
   process.exitCode = 1;
 });

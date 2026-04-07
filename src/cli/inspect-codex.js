@@ -1,6 +1,7 @@
 import { loadConfig } from '../config/load-config.js';
 import { AppDb } from '../db/app-db.js';
 import { safeJsonParse } from '../utils/json.js';
+import { formatCliError } from '../utils/cli-error.js';
 
 function parseArgs(argv) {
   const parsed = {
@@ -94,6 +95,6 @@ async function main() {
 }
 
 main().catch((error) => {
-  console.error(error instanceof Error ? error.stack ?? error.message : error);
+  console.error(formatCliError(error));
   process.exitCode = 1;
 });
