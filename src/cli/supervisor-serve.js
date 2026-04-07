@@ -7,6 +7,7 @@ import { AudioTranscriber } from '../openai/audio-transcriber.js';
 import { SupervisorService } from '../services/supervisor-service.js';
 import { TelegramClient } from '../telegram/telegram-client.js';
 import { CodexRunner } from '../tools/codex-runner.js';
+import { formatCliError } from '../utils/cli-error.js';
 import { acquireWindowsKeepAwake } from '../utils/windows-keep-awake.js';
 
 function sleep(ms) {
@@ -22,10 +23,6 @@ function computeFailureDelayMs(error, consecutiveFailures) {
   }
 
   return Math.min(30000, 1000 * 2 ** Math.min(consecutiveFailures - 1, 5));
-}
-
-function formatError(error) {
-  return error instanceof Error ? error.stack ?? error.message : `${error}`;
 }
 
 export async function runSupervisorServe({
@@ -127,7 +124,7 @@ export async function runSupervisorServe({
       } catch (error) {
         consecutiveFailures += 1;
         const delayMs = computeFailureDelayMs(error, consecutiveFailures);
-        const message = formatError(error);
+        const message = formatCliError(error);
         consoleObject.error(`[Soup AI] supervisor:serve cycle failed (${consecutiveFailures}): ${message}`);
         consoleObject.error(`[Soup AI] supervisor:serve backing off for ${delayMs}ms before retry.`);
 
@@ -150,7 +147,7 @@ export async function runSupervisorServe({
       keepAwakeHandle?.release?.();
     } catch (error) {
       releaseError = error;
-      consoleObject.error(`[Soup AI] ${formatError(error)}`);
+      consoleObject.error(`[Soup AI] ${formatCliError(error)}`);
     }
 
     db.close();
@@ -167,7 +164,7 @@ export async function runSupervisorServe({
 
 if (import.meta.main) {
   runSupervisorServe().catch((error) => {
-    console.error(formatError(error));
+    console.error(formatCliError(error));
     process.exitCode = 1;
   });
 }

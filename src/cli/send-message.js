@@ -2,6 +2,7 @@ import { parseArgs } from 'node:util';
 import { loadConfig } from '../config/load-config.js';
 import { AppDb } from '../db/app-db.js';
 import { TelegramClient } from '../telegram/telegram-client.js';
+import { formatCliError } from '../utils/cli-error.js';
 import { splitTelegramText } from '../utils/text.js';
 
 async function main() {
@@ -60,6 +61,6 @@ async function main() {
 }
 
 main().catch((error) => {
-  console.error(error instanceof Error ? error.message : error);
+  console.error(formatCliError(error));
   process.exitCode = 1;
 });

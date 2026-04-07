@@ -7,6 +7,7 @@ import { AudioTranscriber } from '../openai/audio-transcriber.js';
 import { SupervisorService } from '../services/supervisor-service.js';
 import { TelegramClient } from '../telegram/telegram-client.js';
 import { CodexRunner } from '../tools/codex-runner.js';
+import { formatCliError } from '../utils/cli-error.js';
 
 async function main() {
   const config = loadConfig();
@@ -59,6 +60,6 @@ async function main() {
 }
 
 main().catch((error) => {
-  console.error(error instanceof Error ? error.stack ?? error.message : error);
+  console.error(formatCliError(error));
   process.exitCode = 1;
 });

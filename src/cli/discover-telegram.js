@@ -1,5 +1,6 @@
 import { loadConfig } from '../config/load-config.js';
 import { TelegramClient } from '../telegram/telegram-client.js';
+import { formatCliError } from '../utils/cli-error.js';
 
 function formatChat(chat) {
   const pieces = [`chat_id=${chat.id}`];
@@ -56,6 +57,6 @@ async function main() {
 }
 
 main().catch((error) => {
-  console.error(error instanceof Error ? error.message : error);
+  console.error(formatCliError(error));
   process.exitCode = 1;
 });
