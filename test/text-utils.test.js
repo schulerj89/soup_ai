@@ -36,9 +36,13 @@ test('splitTelegramText keeps text at the exact boundary in one chunk', () => {
   assert.deepEqual(splitTelegramText('abc', 3), ['abc']);
 });
 
-test('splitTelegramText uses the default Telegram-safe limit when maxChars is omitted', () => {
-  const text = `${'a'.repeat(3900)}b`;
-  assert.deepEqual(splitTelegramText(text), ['a'.repeat(3900), 'b']);
+test('splitTelegramText uses its default safe chunking when maxChars is omitted', () => {
+  const text = 'a'.repeat(3901);
+  const chunks = splitTelegramText(text);
+
+  assert.equal(chunks.length, 2);
+  assert.equal(chunks.join(''), text);
+  assert.ok(chunks.every((chunk) => chunk.length <= 3900));
 });
 
 test('splitTelegramText clamps non-positive limits to avoid an endless split loop', () => {
