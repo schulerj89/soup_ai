@@ -10,27 +10,31 @@ export function truncateText(value, maxChars) {
 
 export function splitTelegramText(value, maxChars = 3900) {
   const text = `${value ?? ''}`.trim();
+  const normalizedMaxChars = Number(maxChars);
+  const limit = Number.isFinite(normalizedMaxChars)
+    ? Math.max(1, Math.floor(normalizedMaxChars))
+    : 3900;
 
   if (!text) {
     return [''];
   }
 
-  if (text.length <= maxChars) {
+  if (text.length <= limit) {
     return [text];
   }
 
   const parts = [];
   let remaining = text;
 
-  while (remaining.length > maxChars) {
-    let splitAt = remaining.lastIndexOf('\n', maxChars);
+  while (remaining.length > limit) {
+    let splitAt = remaining.lastIndexOf('\n', limit);
 
-    if (splitAt < maxChars * 0.5) {
-      splitAt = remaining.lastIndexOf(' ', maxChars);
+    if (splitAt < limit * 0.5) {
+      splitAt = remaining.lastIndexOf(' ', limit);
     }
 
-    if (splitAt < maxChars * 0.5) {
-      splitAt = maxChars;
+    if (splitAt < limit * 0.5) {
+      splitAt = limit;
     }
 
     parts.push(remaining.slice(0, splitAt).trim());
