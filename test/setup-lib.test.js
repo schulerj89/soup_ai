@@ -32,6 +32,33 @@ test('buildSetupDefaults prefers existing env values and falls back to defaults'
   assert.equal(defaults.codexSearch, 'false');
 });
 
+test('buildSetupDefaults treats blank env values as missing when choosing setup prefills', () => {
+  const defaults = buildSetupDefaults(
+    {
+      OPENAI_API_KEY: '   ',
+      OPENAI_MODEL: '   ',
+      OPENAI_MEMORY_MODEL: '   ',
+      TELEGRAM_ALLOWED_CHAT_IDS: '',
+      SUPERVISOR_WORKSPACE_ROOT: '   ',
+      OPENAI_TRANSCRIPTION_MODEL: '',
+      SUPERVISOR_DB_PATH: '',
+      CODEX_BIN: '   ',
+      CODEX_ENABLE_SEARCH: '',
+    },
+    ['111', '222'],
+  );
+
+  assert.equal(defaults.openAiApiKey, '');
+  assert.equal(defaults.allowedChatIds, '111,222');
+  assert.equal(defaults.workspaceRoot, 'C:/Users/joshs/Projects');
+  assert.equal(defaults.openAiModel, 'gpt-4.1-mini');
+  assert.equal(defaults.openAiMemoryModel, 'gpt-4.1-mini');
+  assert.equal(defaults.openAiTranscriptionModel, 'gpt-4o-mini-transcribe');
+  assert.equal(defaults.dbPath, './data/soup-ai.sqlite');
+  assert.equal(defaults.codexBin, 'codex');
+  assert.equal(defaults.codexSearch, 'false');
+});
+
 test('buildEnvFileContents preserves existing advanced settings and normalizes paths', () => {
   const contents = buildEnvFileContents({
     existingEnv: {

@@ -8,6 +8,11 @@ export function normalizePathForEnv(value) {
   return value.replaceAll('\\', '/');
 }
 
+function trimToNull(value) {
+  const normalized = `${value ?? ''}`.trim();
+  return normalized ? normalized : null;
+}
+
 export function readExistingEnv(envPath) {
   return fs.existsSync(envPath)
     ? dotenv.parse(fs.readFileSync(envPath, 'utf8'))
@@ -38,22 +43,20 @@ export async function discoverTelegramChatIds(
 
 export function buildSetupDefaults(existingEnv, discoveredChatIds = []) {
   return {
-    openAiApiKey: existingEnv.OPENAI_API_KEY ?? '',
-    telegramBotToken: existingEnv.TELEGRAM_BOT_TOKEN ?? '',
-    allowedChatIds:
-      existingEnv.TELEGRAM_ALLOWED_CHAT_IDS ?? discoveredChatIds.join(','),
-    workspaceRoot:
-      existingEnv.SUPERVISOR_WORKSPACE_ROOT ?? 'C:/Users/joshs/Projects',
-    openAiModel: existingEnv.OPENAI_MODEL ?? 'gpt-4.1-mini',
+    openAiApiKey: trimToNull(existingEnv.OPENAI_API_KEY) ?? '',
+    telegramBotToken: trimToNull(existingEnv.TELEGRAM_BOT_TOKEN) ?? '',
+    allowedChatIds: trimToNull(existingEnv.TELEGRAM_ALLOWED_CHAT_IDS) ?? discoveredChatIds.join(','),
+    workspaceRoot: trimToNull(existingEnv.SUPERVISOR_WORKSPACE_ROOT) ?? 'C:/Users/joshs/Projects',
+    openAiModel: trimToNull(existingEnv.OPENAI_MODEL) ?? 'gpt-4.1-mini',
     openAiMemoryModel:
-      existingEnv.OPENAI_MEMORY_MODEL ??
-      existingEnv.OPENAI_MODEL ??
+      trimToNull(existingEnv.OPENAI_MEMORY_MODEL) ??
+      trimToNull(existingEnv.OPENAI_MODEL) ??
       'gpt-4.1-mini',
     openAiTranscriptionModel:
-      existingEnv.OPENAI_TRANSCRIPTION_MODEL ?? 'gpt-4o-mini-transcribe',
-    dbPath: existingEnv.SUPERVISOR_DB_PATH ?? './data/soup-ai.sqlite',
-    codexBin: existingEnv.CODEX_BIN ?? 'codex',
-    codexSearch: existingEnv.CODEX_ENABLE_SEARCH ?? 'false',
+      trimToNull(existingEnv.OPENAI_TRANSCRIPTION_MODEL) ?? 'gpt-4o-mini-transcribe',
+    dbPath: trimToNull(existingEnv.SUPERVISOR_DB_PATH) ?? './data/soup-ai.sqlite',
+    codexBin: trimToNull(existingEnv.CODEX_BIN) ?? 'codex',
+    codexSearch: trimToNull(existingEnv.CODEX_ENABLE_SEARCH) ?? 'false',
   };
 }
 
