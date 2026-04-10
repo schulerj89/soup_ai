@@ -98,6 +98,7 @@ npm test
   It includes pending/running jobs, pending outbound messages, queued/running tasks, active Codex telemetry, and the current conversation state for the chat.
 - `/tasks` shows the five most recent tracked tasks with status, progress, checklist state when present, and result summary.
 - `/memory` shows the current conversation memory summary, durable facts, durable profile, and recent notes.
+- `/archives` shows the five most recent archived conversations for the chat, including reset reason, timestamps, and saved summary text.
 - `/reset` archives the current conversation, starts a fresh one, and preserves curated memory for reseeding.
 
 Anything else is treated as a supervisor request. Soup AI either replies directly or starts a Codex task and posts a follow-up summary when it finishes.

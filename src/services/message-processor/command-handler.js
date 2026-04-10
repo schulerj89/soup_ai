@@ -1,4 +1,4 @@
-import { formatTaskList } from './helpers.js';
+import { formatConversationArchiveList, formatTaskList } from './helpers.js';
 
 function normalizeCommandText(commandText) {
   const normalized = `${commandText ?? ''}`.trim().toLowerCase();
@@ -32,6 +32,7 @@ export class MessageCommandHandler {
             '/status',
             '/tasks',
             '/memory',
+            '/archives',
             '/reset',
             '',
             'Any other message is handled by the AI supervisor.',
@@ -86,6 +87,16 @@ export class MessageCommandHandler {
           chatId: message.chat_id,
           replyToMessageId: message.telegram_message_id,
           text: formatTaskList(tasks),
+        });
+        this.db.markMessageProcessed(message.id);
+        return true;
+      }
+      case '/archives': {
+        const archives = this.db.listConversationArchives(message.chat_id, 5);
+        this.replyQueue.queue({
+          chatId: message.chat_id,
+          replyToMessageId: message.telegram_message_id,
+          text: formatConversationArchiveList(archives),
         });
         this.db.markMessageProcessed(message.id);
         return true;
