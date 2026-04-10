@@ -340,6 +340,7 @@ test('MessageProcessor handles built-in slash commands without invoking planning
         '/status',
         '/tasks',
         '/memory',
+        '/archives',
         '/reset',
         '',
         'Any other message is handled by the AI supervisor.',
@@ -467,6 +468,84 @@ test('MessageProcessor handles /status with trailing text', async () => {
 
     const outbound = listOutboundMessages(db);
     assert.match(outbound[0], /Soup AI health/);
+  } finally {
+    db.close();
+  }
+});
+
+test('MessageProcessor /archives reports when no archived conversations exist', async () => {
+  const db = createTestDb();
+
+  try {
+    const { job } = queueInboundJob(db, {
+      updateId: 73,
+      telegramMessageId: 173,
+      chatId: 'chat-archives-empty',
+      text: '/archives',
+    });
+
+    const processor = new MessageProcessor({
+      db,
+      agent: {},
+      executionPlanner: null,
+      codexRunner: {
+        run: async () => {
+          throw new Error('codex should not run for /archives');
+        },
+      },
+      config,
+      conversationManager: createConversationManagerStub(),
+    });
+
+    await processor.processJob(job);
+
+    const outbound = listOutboundMessages(db);
+    assert.equal(outbound[0], 'No archived conversations yet.');
+  } finally {
+    db.close();
+  }
+});
+
+test('MessageProcessor /archives lists recent archived conversations for the chat', async () => {
+  const db = createTestDb();
+
+  try {
+    db.archiveConversation({
+      chatId: 'chat-archives',
+      conversationId: 'conv_1',
+      generation: 0,
+      reason: 'User requested a fresh conversation via /reset.',
+      memorySummary: 'Discussed the repo status and next maintenance step.',
+      createdAt: '2026-04-08T10:00:00.000Z',
+    });
+
+    const { job } = queueInboundJob(db, {
+      updateId: 74,
+      telegramMessageId: 174,
+      chatId: 'chat-archives',
+      text: '/archives',
+    });
+
+    const processor = new MessageProcessor({
+      db,
+      agent: {},
+      executionPlanner: null,
+      codexRunner: {
+        run: async () => {
+          throw new Error('codex should not run for /archives');
+        },
+      },
+      config,
+      conversationManager: createConversationManagerStub(),
+    });
+
+    await processor.processJob(job);
+
+    const outbound = listOutboundMessages(db);
+    assert.match(outbound[0], /generation 0: User requested a fresh conversation via \/reset\./);
+    assert.match(outbound[0], /conversationId: conv_1/);
+    assert.match(outbound[0], /createdAt: 2026-04-08T10:00:00\.000Z/);
+    assert.match(outbound[0], /summary: Discussed the repo status and next maintenance step\./);
   } finally {
     db.close();
   }

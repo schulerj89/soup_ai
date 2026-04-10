@@ -60,6 +60,33 @@ export function formatTaskList(tasks) {
     .join('\n\n');
 }
 
+export function formatConversationArchiveList(archives) {
+  if (archives.length === 0) {
+    return 'No archived conversations yet.';
+  }
+
+  return archives
+    .map((archive) => {
+      const lines = [`generation ${archive.generation}: ${archive.reason ?? 'Archived conversation'}`];
+      lines.push(`archivedAt: ${archive.archived_at ?? '(unknown)'}`);
+
+      if (archive.conversation_id) {
+        lines.push(`conversationId: ${archive.conversation_id}`);
+      }
+
+      if (archive.created_at) {
+        lines.push(`createdAt: ${archive.created_at}`);
+      }
+
+      if (`${archive.memory_summary ?? ''}`.trim()) {
+        lines.push(`summary: ${truncateText(archive.memory_summary, 240)}`);
+      }
+
+      return lines.join('\n');
+    })
+    .join('\n\n');
+}
+
 export function shouldUseTodoChecklist(executionPlan) {
   const steps = Array.isArray(executionPlan?.steps) ? executionPlan.steps.filter(Boolean) : [];
   const verification = Array.isArray(executionPlan?.verification)
