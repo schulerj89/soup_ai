@@ -67,8 +67,7 @@ export class SupervisorService {
     return this.updateIngester.isAllowedChat(chatId);
   }
 
-  async transcribeAudioMessage(message, attachment) {
-    void message;
+  async transcribeAudioMessage(_message, attachment) {
     return this.updateIngester.transcribeAudioMessage(attachment);
   }
 
