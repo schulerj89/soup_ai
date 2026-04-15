@@ -95,7 +95,7 @@ npm test
 - `/help` shows the built-in command list.
 - `/health` is an alias for `/status`.
 - `/status` shows the current supervisor snapshot.
-  It includes pending/running jobs, pending outbound messages, queued/running tasks, active Codex telemetry, and the current conversation state for the chat.
+  It includes pending/running jobs, pending outbound messages, queued/running tasks, a short preview of queued work when present, active Codex telemetry, and the current conversation state for the chat.
 - `/tasks` shows the five most recent tracked tasks with status, progress, checklist state when present, and result summary.
 - `/memory` shows the current conversation memory summary, durable facts, durable profile, and recent notes.
 - `/archives` shows the five most recent archived conversations for the chat, including reset reason, timestamps, and saved summary text.

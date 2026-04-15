@@ -1,4 +1,4 @@
-import { formatConversationArchiveList, formatTaskList } from './helpers.js';
+import { formatConversationArchiveList, formatTaskList, formatTaskPreview } from './helpers.js';
 
 function normalizeCommandText(commandText) {
   const normalized = `${commandText ?? ''}`.trim().toLowerCase();
@@ -44,6 +44,8 @@ export class MessageCommandHandler {
       case '/status': {
         const snapshot = this.db.getQueueSnapshot();
         const activeRun = this.db.getActiveCodexRun();
+        const queuedTasks = snapshot.queuedTasks > 0 ? this.db.listQueuedTasks(3) : [];
+        const runningTasks = !activeRun && snapshot.runningTasks > 0 ? this.db.listRunningTasks(3) : [];
         const conversationState = this.conversationManager?.getState(message.chat_id) ?? null;
         const statusLines = [
           'Soup AI health',
@@ -53,6 +55,14 @@ export class MessageCommandHandler {
           `queuedTasks: ${snapshot.queuedTasks ?? 0}`,
           `runningTasks: ${snapshot.runningTasks}`,
         ];
+
+        if (queuedTasks.length > 0) {
+          statusLines.push(`queuedTaskPreview: ${formatTaskPreview(queuedTasks)}`);
+        }
+
+        if (runningTasks.length > 0) {
+          statusLines.push(`runningTaskPreview: ${formatTaskPreview(runningTasks)}`);
+        }
 
         if (activeRun) {
           statusLines.push(`activeCodexTaskId: ${activeRun.taskId ?? '(unknown)'}`);
