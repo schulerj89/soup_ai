@@ -60,6 +60,21 @@ export function formatTaskList(tasks) {
     .join('\n\n');
 }
 
+export function formatTaskPreview(tasks) {
+  return tasks
+    .map((task) => {
+      const parts = [`#${task.id}`, truncateText(task.title || 'Untitled task', 60)];
+      const progressText = `${task.last_progress_text ?? ''}`.trim();
+
+      if (progressText) {
+        parts.push(`— ${truncateText(progressText, 60)}`);
+      }
+
+      return parts.join(' ');
+    })
+    .join(' | ');
+}
+
 export function formatConversationArchiveList(archives) {
   if (archives.length === 0) {
     return 'No archived conversations yet.';

@@ -473,6 +473,54 @@ test('MessageProcessor handles /status with trailing text', async () => {
   }
 });
 
+test('MessageProcessor /status previews queued tasks when work is waiting', async () => {
+  const db = createTestDb();
+
+  try {
+    db.queueTask({
+      sourceJobId: 1,
+      sourceMessageId: 1,
+      title: 'Inspect the repo status and summarize next steps for the operator dashboard',
+      checklist: ['Inspect the repo', 'Summarize next steps'],
+    });
+    db.queueTask({
+      sourceJobId: 2,
+      sourceMessageId: 2,
+      title: 'Review recent conversation archives',
+    });
+
+    const { job } = queueInboundJob(db, {
+      updateId: 73,
+      telegramMessageId: 173,
+      chatId: 'chat-status-queued',
+      text: '/status',
+    });
+
+    const processor = new MessageProcessor({
+      db,
+      agent: {},
+      executionPlanner: null,
+      codexRunner: {
+        run: async () => {
+          throw new Error('codex should not run for /status');
+        },
+        getStatus: async () => ({ ok: true }),
+      },
+      config,
+      conversationManager: createConversationManagerStub(),
+    });
+
+    await processor.processJob(job);
+
+    const outbound = listOutboundMessages(db);
+    assert.match(outbound[0], /queuedTasks: 2/);
+    assert.match(outbound[0], /queuedTaskPreview: #1 Inspect the repo status and summarize next steps for the op… — Queued with checklist\./);
+    assert.match(outbound[0], /#2 Review recent conversation archives — Queued\./);
+  } finally {
+    db.close();
+  }
+});
+
 test('MessageProcessor /archives reports when no archived conversations exist', async () => {
   const db = createTestDb();
 
