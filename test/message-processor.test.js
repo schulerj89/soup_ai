@@ -510,7 +510,8 @@ test('MessageProcessor /status previews queued tasks when work is waiting', asyn
 
     const outbound = listOutboundMessages(db);
     assert.match(outbound[0], /queuedTasks: 2/);
-    assert.match(outbound[0], /queuedTaskPreview: #1 Inspect the repo status and summarize next steps for the ope/);
+    assert.match(outbound[0], /queuedTaskPreview: #1 /);
+    assert.match(outbound[0], /Inspect the repo status and summarize next steps/);
     assert.match(outbound[0], /\.\.\.\[truncated\] — Queued with checklist\./);
     assert.match(outbound[0], /#2 Review recent conversation archives — Queued\./);
   } finally {

@@ -1,5 +1,7 @@
 import { splitTelegramText, truncateText } from '../../utils/text.js';
 
+const TASK_PREVIEW_TRUNCATE_LENGTH = 60;
+
 export function createSessionTextItem(role, text, partType) {
   const normalizedText = `${text ?? ''}`.trim();
 
@@ -63,11 +65,11 @@ export function formatTaskList(tasks) {
 export function formatTaskPreview(tasks) {
   return tasks
     .map((task) => {
-      const parts = [`#${task.id}`, truncateText(task.title || 'Untitled task', 60)];
+      const parts = [`#${task.id}`, truncateText(task.title || 'Untitled task', TASK_PREVIEW_TRUNCATE_LENGTH)];
       const progressText = `${task.last_progress_text ?? ''}`.trim();
 
       if (progressText) {
-        parts.push(`— ${truncateText(progressText, 60)}`);
+        parts.push(`— ${truncateText(progressText, TASK_PREVIEW_TRUNCATE_LENGTH)}`);
       }
 
       return parts.join(' ');
